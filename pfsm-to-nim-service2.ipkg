@@ -1,0 +1,6 @@
+package pfsm-to-nim-service2
+
+depends = contrib, pfsm
+main = Pfsm.NimService2
+executable = pfsm-to-nim-service2
+
