@@ -114,7 +114,7 @@ toNim fsm
                       ]
       where
         generateEventHandle : Nat -> Event -> String
-        generateEventHandle idt evt@(MkEvent n ps)
+        generateEventHandle idt evt@(MkEvent n ps _)
           = let srcs = [ (indent idt) ++ "of " ++ (show (toUpper (toNimName n))) ++ ":"
                        , generateFetchEventArgs (idt + indentDelta) ps
                        , generateEventCall (idt + indentDelta) evt
@@ -152,7 +152,7 @@ toNim fsm
                        else ""
 
             generateEventCall : Nat -> Event -> String
-            generateEventCall idt (MkEvent n ps)
+            generateEventCall idt (MkEvent n ps _)
               = (indent idt) ++ "result = " ++ (toNimName n) ++ "(" ++ (join ", " (map (\(n, _, _) => toNimName n) (("fsm", (TPrimType PTBool), Nothing) :: (("model", (TPrimType PTBool), Nothing) :: ps)))) ++ ")"
 
             generateQueueHandler : Nat -> String
