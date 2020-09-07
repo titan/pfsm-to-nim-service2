@@ -91,7 +91,7 @@ toNim fsm
     generateImports : Fsm -> String
     generateImports fsm
       = let name = toNimName fsm.name in
-            join "\n" [ "import deques, json, logging, service2, strtabs, strutils"
+            join "\n" [ "import deques, json, logging, service2, sequtils, strtabs, strutils"
                       , "import " ++ name
                       , "import " ++ name ++ "_delegates"
                       ]
@@ -115,7 +115,7 @@ toNim fsm
       where
         generateEventHandle : Nat -> Event -> String
         generateEventHandle idt evt@(MkEvent n ps _)
-          = let srcs = [ (indent idt) ++ "of " ++ (show (toUpper (toNimName n))) ++ ":"
+          = let srcs = [ (indent idt) ++ "of " ++ (show (toUpper n)) ++ ":"
                        , generateFetchEventArgs (idt + indentDelta) ps
                        , generateEventCall (idt + indentDelta) evt
                        , generateQueueHandler (idt + indentDelta)
@@ -141,7 +141,7 @@ toNim fsm
             generateFetchEventArg : Nat -> Parameter -> String
             generateFetchEventArg idt (n, t, _)
               = let lhs = (indent idt) ++ (toNimName n)
-                    rhs = "payload.getOrDefault(\"" ++ (toUpper (toNimName n)) ++ "\")" in
+                    rhs = "payload.getOrDefault(\"" ++ (toUpper n) ++ "\")" in
                     lhs ++ " = " ++ (typeWrapper rhs t)
 
             generateFetchEventArgs : Nat -> List Parameter -> String
@@ -231,7 +231,7 @@ toNim fsm
                 indexed = enumerate $ map (\x => fromMaybe TUnit $ inferType env x) es in
                 join "\n" [ (indent idt) ++ "proc " ++ funname ++ "(" ++ (join ", " (map (\(n', t) => (toNimName n') ++ ": " ++ (toNimType t)) (("model", TRecord (pre ++ "Model") []) :: (map (\(i, t) => ("a" ++ show i, t)) indexed)))) ++ ") ="
                           , (indent (idt + indentDelta)) ++ "queue.addLast(proc (ctx: ServiceContext) ="
-                          , (indent (idt + indentDelta * 2)) ++ "info \"" ++ funname ++ " \", ctx.fsmid" ++ (foldl (\acc, (i, t) => acc ++ ", \" \", a" ++ (show i)) "" indexed)
+                          , (indent (idt + indentDelta * 2)) ++ "info \"" ++ funname ++ " \", ctx.fsmid" ++ (foldl (\acc, (i, t) => acc ++ (case t of (TPrimType PTString) => ", \" \", a"; _ => ", \" \", $a") ++ (show i)) "" indexed)
                           , (indent (idt + indentDelta * 2)) ++ name ++ "_" ++ funname ++ "(" ++ (foldl (\acc, (i, _) => acc ++ ", a" ++ (show i)) "ctx, model" indexed) ++ ")"
                           , (indent (idt + indentDelta)) ++ ")"
                           ]
