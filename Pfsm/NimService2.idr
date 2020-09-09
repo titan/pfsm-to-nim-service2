@@ -201,7 +201,7 @@ toNim fsm
         typeWrapper s (TPrimType PTInt)    = s ++ ".getInt"
         typeWrapper s (TPrimType PTUInt)   = "cast[uint](" ++ s ++ ".getInt)"
         typeWrapper s (TPrimType PTLong)   = s ++ ".getBiggestInt"
-        typeWrapper s (TPrimType PTULong)  = "cast[uint64]](" ++ s ++ ".getBiggestInt)"
+        typeWrapper s (TPrimType PTULong)  = "cast[uint64](" ++ s ++ ".getBiggestInt)"
         typeWrapper s (TPrimType PTReal)   = s ++ ".getFloat"
         typeWrapper s (TPrimType PTChar)   = "if len(" ++ s ++ ".getStr) > 0: " ++ s ++ ".getStr()[0] else: '\\0'"
         typeWrapper s (TPrimType PTString) = s ++ ".getStr"
