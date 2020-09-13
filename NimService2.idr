@@ -66,27 +66,11 @@ toNim fsm
                        ] in
                 join "\n" $ filter (\x => length x > 0) srcs
           where
-            typeWrapper : String -> Tipe -> String
-            typeWrapper s (TPrimType PTBool)   = s ++ ".parseBool"
-            typeWrapper s (TPrimType PTByte)   = "cast[uint8](" ++ s ++ ".parseInt)"
-            typeWrapper s (TPrimType PTShort)  = "cast[int16](" ++ s ++ ".parseInt)"
-            typeWrapper s (TPrimType PTUShort) = "cast[uint16](" ++ s ++ ".parseUInt)"
-            typeWrapper s (TPrimType PTInt)    = s ++ ".parseInt"
-            typeWrapper s (TPrimType PTUInt)   = s ++ ".parseUInt"
-            typeWrapper s (TPrimType PTLong)   = s ++ ".parseBiggestInt"
-            typeWrapper s (TPrimType PTULong)  = s ++ ".parseBiggestUInt"
-            typeWrapper s (TPrimType PTReal)   = s ++ ".parseFloat"
-            typeWrapper s (TPrimType PTChar)   = "if len(" ++ s ++ ") > 0: " ++ s ++ "[0] else: '\\0'"
-            typeWrapper s (TPrimType PTString) = s
-            typeWrapper s (TList t)            = s ++ ".split(\",\").mapIt(" ++ (typeWrapper "it" t) ++ ")"
-            typeWrapper s (TDict PTString t)   = s ++ ".split(\",\").mapIt(it.split(\":\")).mapIt((it[0], " ++ (typeWrapper "it[1]" t) ++ ")).newTable"
-            typeWrapper s _                    = s
-
             generateFetchEventArg : Nat -> Parameter -> String
             generateFetchEventArg idt (n, t, _)
               = let lhs = (indent idt) ++ (toNimName n)
                     rhs = "payload.getOrDefault(\"" ++ (toUpper n) ++ "\")" in
-                    lhs ++ " = " ++ (typeWrapper rhs t)
+                    lhs ++ " = " ++ (toNimFromString rhs t)
 
             generateFetchEventArgs : Nat -> List Parameter -> String
             generateFetchEventArgs idt ps
@@ -137,26 +121,10 @@ toNim fsm
                       , generateModelFromJson indentDelta fsm.model
                       ]
       where
-        typeWrapper : String -> Tipe -> String
-        typeWrapper s (TPrimType PTBool)   = s ++ "getBool"
-        typeWrapper s (TPrimType PTByte)   = "cast[uint8](" ++ s ++ ".getInt)"
-        typeWrapper s (TPrimType PTShort)  = "cast[int16](" ++ s ++ ".getInt)"
-        typeWrapper s (TPrimType PTUShort) = "cast[uint16](" ++ s ++ ".getInt)"
-        typeWrapper s (TPrimType PTInt)    = s ++ ".getInt"
-        typeWrapper s (TPrimType PTUInt)   = "cast[uint](" ++ s ++ ".getInt)"
-        typeWrapper s (TPrimType PTLong)   = s ++ ".getBiggestInt"
-        typeWrapper s (TPrimType PTULong)  = "cast[uint64](" ++ s ++ ".getBiggestInt)"
-        typeWrapper s (TPrimType PTReal)   = s ++ ".getFloat"
-        typeWrapper s (TPrimType PTChar)   = "if len(" ++ s ++ ".getStr) > 0: " ++ s ++ ".getStr()[0] else: '\\0'"
-        typeWrapper s (TPrimType PTString) = s ++ ".getStr"
-        typeWrapper s (TList t)            = s ++ ".getElems.mapIt(" ++ (typeWrapper "it" t) ++ ")"
-        typeWrapper s (TDict PTString t)   = s ++ ".getFields.mapIt((it[0], " ++ (typeWrapper "it[1]" t) ++ "))"
-        typeWrapper s _                    = s
-
         generateAttributeFromJson : Nat -> Parameter -> String
         generateAttributeFromJson idt (n, t, _)
           = let lhs = (indent idt) ++ "result." ++ (toNimName n)
-                rhs = typeWrapper ("node{" ++ (show n) ++"}") t in
+                rhs = toNimFromJson ("node{" ++ (show n) ++"}") t in
                 lhs ++ " = " ++ rhs
 
         generateModelFromJson : Nat -> List Parameter -> String
@@ -197,14 +165,14 @@ toNim fsm
                 aes = filter applicationExpressionFilter $ flatten $ map expressionsOfAction aas
                 oas = outputActions fsm
                 ges = nub $ filter applicationExpressionFilter $ flatten $ map expressionsOfTestExpression $ flatten $ map guardsOfTransition fsm.transitions in
-                join "\n" [ (indent idt) ++ "let"
-                          , generateInitActionDelegate (idt + indentDelta) pre name aes
-                          , generateInitOutputDelegate (idt + indentDelta) pre oas
-                          , generateInitGuardDelegate (idt + indentDelta) pre name ges
-                          , generateInitStateMachine (idt + indentDelta) pre (length aes > Z) (length oas > Z) (length ges > Z)
-                          , generateInitServiceDelegate (idt + indentDelta) pre
-                          , (indent idt) ++ "run[" ++ pre ++ "StateMachine, " ++ pre ++ "Model](bfsm, \"%%NAME%%\", \"%%DBUSER%%\", \"%%DBNAME%%\", \"%%TABLE-NAME%%\", \"%%INPUT-QUEUE%%\", \"%%OUTPUT-QUEUE%%\", delegate)"
-                          ]
+                join "\n" $ filter nonblank [ (indent idt) ++ "let"
+                                            , generateInitActionDelegate (idt + indentDelta) pre name aes
+                                            , generateInitOutputDelegate (idt + indentDelta) pre oas
+                                            , generateInitGuardDelegate (idt + indentDelta) pre name ges
+                                            , generateInitStateMachine (idt + indentDelta) pre (length aes > Z) (length oas > Z) (length ges > Z)
+                                            , generateInitServiceDelegate (idt + indentDelta) pre
+                                            , (indent idt) ++ "run[" ++ pre ++ "StateMachine, " ++ pre ++ "Model](bfsm, \"%%NAME%%\", \"%%DBUSER%%\", \"%%DBNAME%%\", \"%%TABLE-NAME%%\", \"%%INPUT-QUEUE%%\", \"%%OUTPUT-QUEUE%%\", delegate)"
+                                            ]
           where
             generateInitActionDelegate : Nat -> String -> String -> List Expression -> String
             generateInitActionDelegate idt pre name []  = ""
