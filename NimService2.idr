@@ -23,21 +23,27 @@ indentDelta = 2
 
 toNim : Fsm -> String
 toNim fsm
-  = join "\n\n" [ generateImports fsm
-                , generateTypes
-                , "var queue = initDeque[MessageFunc](8)"
-                , generatePlayEvent fsm
-                , generateToJson fsm
-                , generateFromJson fsm
-                , generateMainModule fsm
-                ]
+  = let name = fsm.name
+        pre = camelize name
+        events = fsm.events
+        records = liftRecords fsm.model in
+        join "\n\n" $ filter nonblank [ generateImports name
+                                      , generateTypes
+                                      , "var queue = initDeque[MessageFunc](8)"
+                                      , generateJsonToRecords records
+                                      , generatePlayEvent pre events
+                                      , generateToJson pre fsm.model
+                                      , generateFromJson pre fsm.model
+                                      , generateMainModule pre name fsm
+                                      ]
   where
-    generateImports : Fsm -> String
-    generateImports fsm
-      = let name = toNimName fsm.name in
-            join "\n" [ "import deques, json, logging, service2, sequtils, strtabs, strutils"
-                      , "import " ++ name
-                      , "import " ++ name ++ "_delegates"
+    generateImports : String -> String
+    generateImports name
+      = let n = toNimName name in
+            join "\n" [ "import deques, json, logging, service2, sequtils, strtabs, strutils, times"
+                      , "import redis except `%`"
+                      , "import " ++ n
+                      , "import " ++ n ++ "_delegates"
                       ]
 
     generateTypes : String
@@ -46,16 +52,29 @@ toNim fsm
                   , (indent indentDelta) ++ "MessageFunc = proc (ctx: ServiceContext): void"
                   ]
 
-    generatePlayEvent : Fsm -> String
-    generatePlayEvent fsm
-      = let es = fsm.events
-            pre = camelize $ toNimName fsm.name in
-            join "\n" [ "proc play_event(fsm: " ++ pre ++ "StateMachine, model: " ++ pre ++ "Model, context: ServiceContext, event: string, payload: StringTableRef): " ++ pre ++ "Model ="
-                      , (indent indentDelta) ++ "case event:"
-                      , generateEventHandlers (indentDelta * 2) es
-                      , (indent (indentDelta * 2)) ++ "else:"
-                      , generateDefaultEventHandler (indentDelta * 3)
-                      ]
+    generateJsonToRecords : List Tipe -> String
+    generateJsonToRecords ts
+      = join "\n" $ filter nonblank $ map generateJsonToRecord ts
+      where
+        generateAssignment : Nat -> Parameter -> String
+        generateAssignment idt (n, t, _) = (indent idt) ++ (toNimName n) ++ " = " ++ (toNimFromJson ("node{\"" ++ n ++ "\"}") t)
+
+        generateJsonToRecord : Tipe -> String
+        generateJsonToRecord (TRecord n ps) = join "\n" [ "proc jsonTo" ++ (camelize n) ++ "(node: JsonNode): " ++ (camelize n) ++ " ="
+                                                        , (indent indentDelta) ++ "let"
+                                                        , join "\n" $ map (generateAssignment (indentDelta * 2)) ps
+                                                        , (indent indentDelta) ++ "result = " ++ (camelize n) ++ "(" ++ (join ", " (map (\(n, _, _) => (toNimName n) ++ ": " ++ (toNimName n)) ps)) ++ ")"
+                                                        ]
+        generateJsonToRecord _              = ""
+
+    generatePlayEvent : String -> List Event -> String
+    generatePlayEvent pre es
+      = join "\n" [ "proc play_event(fsm: " ++ pre ++ "StateMachine, model: " ++ pre ++ "Model, context: ServiceContext, event: string, payload: StringTableRef): " ++ pre ++ "Model ="
+                  , (indent indentDelta) ++ "case event:"
+                  , generateEventHandlers (indentDelta * 2) es
+                  , (indent (indentDelta * 2)) ++ "else:"
+                  , generateDefaultEventHandler (indentDelta * 3)
+                  ]
       where
         generateEventHandle : Nat -> Event -> String
         generateEventHandle idt evt@(MkEvent n ps _)
@@ -101,25 +120,23 @@ toNim fsm
                       , (indent idt) ++ "result = model"
                       ]
 
-    generateToJson : Fsm -> String
-    generateToJson fsm
-      = let pre = camelize $ toNimName fsm.name in
-            join "\n" [ "proc to_json(model: " ++ pre ++ "Model): JsonNode ="
-                      , (indent indentDelta) ++ "result = newJObject()"
-                      , generateModelToJson indentDelta fsm.model
-                      ]
+    generateToJson : String -> List Parameter -> String
+    generateToJson pre ps
+      = join "\n" [ "proc to_json(model: " ++ pre ++ "Model): JsonNode ="
+                  , (indent indentDelta) ++ "result = newJObject()"
+                  , generateModelToJson indentDelta ps
+                  ]
       where
         generateModelToJson : Nat -> List Parameter -> String
         generateModelToJson idt ps
           = join "\n" $ map (\(n, _, _) => (indent idt) ++ "result.add(" ++ (show n) ++ ", % model." ++ (toNimName n) ++ ")") ps
 
-    generateFromJson : Fsm -> String
-    generateFromJson fsm
-      = let pre = camelize $ toNimName fsm.name in
-            join "\n" [ "proc from_json(node: JsonNode): " ++ pre ++ "Model ="
-                      , (indent indentDelta) ++ "result = new(" ++ pre ++ "Model)"
-                      , generateModelFromJson indentDelta fsm.model
-                      ]
+    generateFromJson : String -> List Parameter -> String
+    generateFromJson pre ps
+      = join "\n" [ "proc from_json(node: JsonNode): " ++ pre ++ "Model ="
+                  , (indent indentDelta) ++ "result = new(" ++ pre ++ "Model)"
+                  , generateModelFromJson indentDelta ps
+                  ]
       where
         generateAttributeFromJson : Nat -> Parameter -> String
         generateAttributeFromJson idt (n, t, _)
@@ -130,38 +147,111 @@ toNim fsm
         generateModelFromJson : Nat -> List Parameter -> String
         generateModelFromJson idt ps = join "\n" $ map (generateAttributeFromJson idt) ps
 
-    generateMainModule : Fsm -> String
-    generateMainModule fsm
-      = join "\n\n" [ "when isMainModule:"
-                    , generateOutputDelegates indentDelta fsm
-                    , generateMainCode indentDelta fsm
-                    ]
+    generateMainModule : String -> String -> Fsm -> String
+    generateMainModule pre name fsm
+      = let env = rootEnv fsm
+            params = fsm.model
+            actions = outputActions fsm in
+            join "\n\n" $ filter nonblank [ "when isMainModule:"
+                                          , generateNonDefaultOutputDelegates indentDelta pre name env params actions
+                                          , generateDefaultOutputDelegates indentDelta pre name env params actions
+                                          , generateMainCode indentDelta pre name fsm
+                                          ]
       where
-        generateOutputDelegate : Nat -> SortedMap Expression Tipe -> String -> String -> Action -> String
-        generateOutputDelegate idt env pre name (OutputAction n es)
+        generateOutputDelegate : Nat -> String -> String -> SortedMap Expression Tipe -> List Parameter -> (Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String) -> Action -> String
+        generateOutputDelegate idt pre name env params body (OutputAction n es)
           = let funname = "output_" ++ (toNimName n)
                 indexed = enumerate $ map (\x => fromMaybe TUnit $ inferType env x) es in
                 join "\n" [ (indent idt) ++ "proc " ++ funname ++ "(" ++ (join ", " (map (\(n', t) => (toNimName n') ++ ": " ++ (toNimType t)) (("model", TRecord (pre ++ "Model") []) :: (map (\(i, t) => ("a" ++ show i, t)) indexed)))) ++ ") ="
                           , (indent (idt + indentDelta)) ++ "queue.addLast(proc (ctx: ServiceContext) ="
                           , (indent (idt + indentDelta * 2)) ++ "info \"" ++ funname ++ " \", ctx.fsmid" ++ (foldl (\acc, (i, t) => acc ++ (case t of (TPrimType PTString) => ", \" \", a"; _ => ", \" \", $a") ++ (show i)) "" indexed)
-                          , (indent (idt + indentDelta * 2)) ++ name ++ "_" ++ funname ++ "(" ++ (foldl (\acc, (i, _) => acc ++ ", a" ++ (show i)) "ctx, model" indexed) ++ ")"
+                          , body (idt + indentDelta * 2) name funname indexed params
                           , (indent (idt + indentDelta)) ++ ")"
                           ]
-        generateOutputDelegate idt env pre name _ = ""
+        generateOutputDelegate idt env pre name params body _ = ""
 
-        generateOutputDelegates : Nat -> Fsm -> String
-        generateOutputDelegates idt fsm
-          = let env = rootEnv fsm
-                name = toNimName fsm.name
-                pre = camelize name
-                as = outputActions fsm in
-                join "\n\n" $ map (generateOutputDelegate idt env pre name) as
+        generateNonDefaultOutputDelegates : Nat -> String -> String -> SortedMap Expression Tipe -> List Parameter -> List Action -> String
+        generateNonDefaultOutputDelegates idt pre name env params as
+          = join "\n\n" $ filter nonblank $ map (generateOutputDelegate idt pre name env params bodyGenerator) $ filter nonDefaultOutputActionFilter as
+          where
+            nonDefaultOutputActionFilter : Action -> Bool
+            nonDefaultOutputActionFilter (OutputAction "add-to-state-list" _)      = False
+            nonDefaultOutputActionFilter (OutputAction "remove-from-state-list" _) = False
+            nonDefaultOutputActionFilter (OutputAction "response" _)               = False
+            nonDefaultOutputActionFilter (OutputAction "response-id" _)            = False
+            nonDefaultOutputActionFilter (OutputAction "sync-model" _)             = False
+            nonDefaultOutputActionFilter _                                         = True
 
-        generateMainCode : Nat -> Fsm -> String
-        generateMainCode idt fsm
-          = let name = toNimName fsm.name
-                pre = camelize name
-                aas = assignmentActions fsm
+            bodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
+            bodyGenerator idt name funname indexed params
+              = (indent idt) ++ name ++ "_" ++ funname ++ "(" ++ (foldl (\acc, (i, _) => acc ++ ", a" ++ (show i)) "ctx, model" indexed) ++ ")"
+
+        generateDefaultOutputDelegates : Nat -> String -> String -> SortedMap Expression Tipe -> List Parameter -> List Action -> String
+        generateDefaultOutputDelegates idt pre name env params as
+          = join "\n\n" $ filter nonblank $ map (generateDefaultOutputDelegate idt pre name env params) $ filter defaultOutputActionFilter as
+          where
+            defaultOutputActionFilter : Action -> Bool
+            defaultOutputActionFilter (OutputAction "add-to-state-list" _)      = True
+            defaultOutputActionFilter (OutputAction "remove-from-state-list" _) = True
+            defaultOutputActionFilter (OutputAction "response" _)               = True
+            defaultOutputActionFilter (OutputAction "response-id" _)            = True
+            defaultOutputActionFilter (OutputAction "sync-model" _)             = True
+            defaultOutputActionFilter _                                         = False
+
+            addToStateListBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
+            addToStateListBodyGenerator idt name funname indexed _
+              = join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#" ++ name ++ ".\" & a0"
+                          , (indent idt) ++ "discard ctx.cache_redis.zadd(key, @[(cast[int](from_mytimestamp(ctx.occurred_at).toTime.toUnix), $ctx.fsmid)])"
+                          ]
+
+            removeFromStateListBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
+            removeFromStateListBodyGenerator idt name funname indexed _
+              = join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#" ++ name ++ ".\" & a0"
+                          , (indent idt) ++ "discard ctx.cache_redis.zrem(key, @[$ctx.fsmid])"
+                          ]
+
+            responseBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
+            responseBodyGenerator idt name funname indexed _
+              = join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#cb:\" & ctx.callback"
+                          , (indent idt) ++ "discard ctx.cache_redis.setex(key, \"\"\"{\"code\":$1, \"payload\":\"$2\"}\"\"\" % [$a0, a1], 60)"
+                          ]
+
+            responseIdBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
+            responseIdBodyGenerator idt name funname indexed _
+              = join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#cb:\" & ctx.callback"
+                          , (indent idt) ++ "discard ctx.cache_redis.setex(key, \"\"\"{\"code\":200, \"payload\":\"$1\"}\"\"\" % $ ctx.fsmid, 60)"
+                          ]
+
+            syncModelBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
+            syncModelBodyGenerator idt name funname indexed params
+              = join "\n" [ (indent idt) ++ "let"
+                          , (indent (idt + indentDelta)) ++ "key = \"tenant:\" & $ctx.tenant & \"#" ++ name ++ ":\" & $ ctx.fsmid"
+                          , (indent (idt + indentDelta)) ++ "args = @{"
+                          , generateArguments (idt + indentDelta * 2) params
+                          , (indent (idt + indentDelta)) ++ "}"
+                          , (indent idt) ++ "discard ctx.cache_redis.hmset(key, args)"
+                          ]
+              where
+                generateArgument : Nat -> Parameter -> String
+                generateArgument idt (n, t, _)
+                  = (indent idt) ++ "\"" ++ (toUpper n) ++ "\": " ++ (toNimString ("model." ++ n) t)
+
+                generateArguments : Nat -> List Parameter -> String
+                generateArguments idt ps
+                  = join ",\n" $ map (generateArgument idt) ps
+
+            generateDefaultOutputDelegate : Nat -> String -> String -> SortedMap Expression Tipe -> List Parameter -> Action -> String
+            generateDefaultOutputDelegate idt pre name env params act@(OutputAction "add-to-state-list" _)      = generateOutputDelegate idt pre name env params addToStateListBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env params act@(OutputAction "remove-from-state-list" _) = generateOutputDelegate idt pre name env params removeFromStateListBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env params act@(OutputAction "response" _)               = generateOutputDelegate idt pre name env params responseBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env params act@(OutputAction "response-id" _)            = generateOutputDelegate idt pre name env params responseIdBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env params act@(OutputAction "sync-model" _)             = generateOutputDelegate idt pre name env params syncModelBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env params _                                             = ""
+
+
+        generateMainCode : Nat -> String -> String -> Fsm -> String
+        generateMainCode idt pre name fsm
+          = let aas = assignmentActions fsm
                 aes = filter applicationExpressionFilter $ flatten $ map expressionsOfAction aas
                 oas = outputActions fsm
                 ges = nub $ filter applicationExpressionFilter $ flatten $ map expressionsOfTestExpression $ flatten $ map guardsOfTransition fsm.transitions in
