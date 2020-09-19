@@ -155,7 +155,7 @@ toNim fsm
             join "\n\n" $ filter nonblank [ "when isMainModule:"
                                           , generateNonDefaultOutputDelegates indentDelta pre name env params actions
                                           , generateDefaultOutputDelegates indentDelta pre name env params actions
-                                          , generateMainCode indentDelta pre name fsm
+                                          , generateMainCode indentDelta pre name env fsm
                                           ]
       where
         generateOutputDelegate : Nat -> String -> String -> SortedMap Expression Tipe -> List Parameter -> (Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String) -> Action -> String
@@ -249,53 +249,61 @@ toNim fsm
             generateDefaultOutputDelegate idt pre name env params _                                             = ""
 
 
-        generateMainCode : Nat -> String -> String -> Fsm -> String
-        generateMainCode idt pre name fsm
+        generateMainCode : Nat -> String -> String -> SortedMap Expression Tipe -> Fsm -> String
+        generateMainCode idt pre name env fsm
           = let aas = assignmentActions fsm
-                aes = filter applicationExpressionFilter $ flatten $ map expressionsOfAction aas
+                aes = nubBy (applicationExpressionEqualityChecker env) $ filter applicationExpressionFilter $ flatten $ map expressionsOfAction aas
                 oas = outputActions fsm
-                ges = nub $ filter applicationExpressionFilter $ flatten $ map expressionsOfTestExpression $ flatten $ map guardsOfTransition fsm.transitions in
+                ges = nubBy (applicationExpressionEqualityChecker env) $ filter applicationExpressionFilter $ flatten $ map expressionsOfTestExpression $ flatten $ map guardsOfTransition fsm.transitions in
                 join "\n" $ filter nonblank [ (indent idt) ++ "let"
-                                            , generateInitActionDelegate (idt + indentDelta) pre name aes
-                                            , generateInitOutputDelegate (idt + indentDelta) pre oas
-                                            , generateInitGuardDelegate (idt + indentDelta) pre name ges
+                                            , generateInitActionDelegates (idt + indentDelta) pre name aes
+                                            , generateInitOutputDelegates (idt + indentDelta) pre oas
+                                            , generateInitGuardDelegates (idt + indentDelta) pre name ges
                                             , generateInitStateMachine (idt + indentDelta) pre (length aes > Z) (length oas > Z) (length ges > Z)
                                             , generateInitServiceDelegate (idt + indentDelta) pre
                                             , (indent idt) ++ "run[" ++ pre ++ "StateMachine, " ++ pre ++ "Model](bfsm, \"%%NAME%%\", \"%%DBUSER%%\", \"%%DBNAME%%\", \"%%TABLE-NAME%%\", \"%%INPUT-QUEUE%%\", \"%%OUTPUT-QUEUE%%\", delegate)"
                                             ]
           where
-            generateInitActionDelegate : Nat -> String -> String -> List Expression -> String
-            generateInitActionDelegate idt pre name []  = ""
-            generateInitActionDelegate idt pre name aes = join "\n" [ (indent idt) ++ "action_delegate = " ++ pre ++ "ActionDelegate("
-                                                                    , join ",\n" $ map (generateInitActionDelegate' (idt + indentDelta) name) aes
-                                                                    , (indent idt) ++ ")"
-                                                                    ]
-              where
-                generateInitActionDelegate' : Nat -> String -> Expression -> String
-                generateInitActionDelegate' idt name (ApplicationExpression n _) = (indent idt) ++ (toNimName n) ++ ": " ++ name ++ "_action_" ++ (toNimName n)
-                generateInitActionDelegate' idt name _                           = ""
 
-            generateInitOutputDelegate : Nat -> String -> List Action -> String
-            generateInitOutputDelegate idt pre [] = ""
-            generateInitOutputDelegate idt pre as = join "\n" [ (indent idt) ++ "output_delegate = " ++ pre ++ "OutputDelegate("
-                                                              , join ",\n" $ map (generateInitOutputDelegate' (idt + indentDelta)) as
-                                                              , (indent idt) ++ ")"
-                                                              ]
+            generateInitActionDelegates : Nat -> String -> String -> List Expression -> String
+            generateInitActionDelegates idt pre name []  = ""
+            generateInitActionDelegates idt pre name aes = join "\n" [ (indent idt) ++ "action_delegate = " ++ pre ++ "ActionDelegate("
+                                                                     , join ",\n" $ map (generateInitActionDelegate (idt + indentDelta) name) aes
+                                                                     , (indent idt) ++ ")"
+                                                                     ]
               where
-                generateInitOutputDelegate' : Nat -> Action -> String
-                generateInitOutputDelegate' idt (OutputAction n _) = (indent idt) ++ (toNimName n) ++ ": output_" ++ (toNimName n)
-                generateInitOutputDelegate' idt _ = ""
+                toActionFuncName : Name -> String
+                toActionFuncName "+" = "plus"
+                toActionFuncName "-" = "minus"
+                toActionFuncName "*" = "multiplay"
+                toActionFuncName "/" = "divide"
+                toActionFuncName n   = toNimName n
 
-            generateInitGuardDelegate : Nat -> String -> String -> List Expression -> String
-            generateInitGuardDelegate idt pre name [] = ""
-            generateInitGuardDelegate idt pre name es = join "\n" [ (indent idt) ++ "guard_delegate = " ++ pre ++ "GuardDelegate("
-                                                                  , join ",\n" $ map (generateInitGuardDelegate' (idt + indentDelta) name) es
-                                                                  , (indent idt) ++ ")"
-                                                                  ]
+                generateInitActionDelegate : Nat -> String -> Expression -> String
+                generateInitActionDelegate idt name (ApplicationExpression n _) = (indent idt) ++ (toNimFuncName n) ++ ": " ++ name ++ "_action_" ++ (toActionFuncName n)
+                generateInitActionDelegate idt name _                           = ""
+
+            generateInitOutputDelegates : Nat -> String -> List Action -> String
+            generateInitOutputDelegates idt pre [] = ""
+            generateInitOutputDelegates idt pre as = join "\n" [ (indent idt) ++ "output_delegate = " ++ pre ++ "OutputDelegate("
+                                                               , join ",\n" $ map (generateInitOutputDelegate (idt + indentDelta)) as
+                                                               , (indent idt) ++ ")"
+                                                               ]
               where
-                generateInitGuardDelegate' : Nat -> String -> Expression -> String
-                generateInitGuardDelegate' idt name (ApplicationExpression n _) = (indent idt) ++ (toNimName n) ++ ": " ++ name ++ "_guard_" ++ (toNimName n)
-                generateInitGuardDelegate' idt name _ = ""
+                generateInitOutputDelegate : Nat -> Action -> String
+                generateInitOutputDelegate idt (OutputAction n _) = (indent idt) ++ (toNimName n) ++ ": output_" ++ (toNimName n)
+                generateInitOutputDelegate idt _ = ""
+
+            generateInitGuardDelegates : Nat -> String -> String -> List Expression -> String
+            generateInitGuardDelegates idt pre name [] = ""
+            generateInitGuardDelegates idt pre name es = join "\n" [ (indent idt) ++ "guard_delegate = " ++ pre ++ "GuardDelegate("
+                                                                   , join ",\n" $ map (generateInitGuardDelegate (idt + indentDelta) name) es
+                                                                   , (indent idt) ++ ")"
+                                                                   ]
+              where
+                generateInitGuardDelegate : Nat -> String -> Expression -> String
+                generateInitGuardDelegate idt name (ApplicationExpression n _) = (indent idt) ++ (toNimName n) ++ ": " ++ name ++ "_guard_" ++ (toNimName n)
+                generateInitGuardDelegate idt name _ = ""
 
             generateInitStateMachine : Nat -> String -> Bool -> Bool -> Bool -> String
             generateInitStateMachine idt pre ad od gd
