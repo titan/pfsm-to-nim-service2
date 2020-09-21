@@ -2,6 +2,7 @@ module NimService2
 
 import Data.Maybe
 import Data.List
+import Data.List1
 import Data.SortedMap
 import Data.SortedSet
 import Data.Strings
@@ -40,17 +41,17 @@ toNim fsm
     generateImports : String -> String
     generateImports name
       = let n = toNimName name in
-            join "\n" [ "import deques, json, logging, service2, sequtils, strtabs, strutils, times"
-                      , "import redis except `%`"
-                      , "import " ++ n
-                      , "import " ++ n ++ "_delegates"
-                      ]
+            List.join "\n" [ "import deques, json, logging, service2, sequtils, strtabs, strutils, times"
+                           , "import redis except `%`"
+                           , "import " ++ n
+                           , "import " ++ n ++ "_delegates"
+                           ]
 
     generateTypes : String
     generateTypes
-      = join "\n" [ "type"
-                  , (indent indentDelta) ++ "MessageFunc = proc (ctx: ServiceContext): void"
-                  ]
+      = List.join "\n" [ "type"
+                       , (indent indentDelta) ++ "MessageFunc = proc (ctx: ServiceContext): void"
+                       ]
 
     generateJsonToRecords : List Tipe -> String
     generateJsonToRecords ts
@@ -60,21 +61,21 @@ toNim fsm
         generateAssignment idt (n, t, _) = (indent idt) ++ (toNimName n) ++ " = " ++ (toNimFromJson ("node{\"" ++ n ++ "\"}") t)
 
         generateJsonToRecord : Tipe -> String
-        generateJsonToRecord (TRecord n ps) = join "\n" [ "proc jsonTo" ++ (camelize n) ++ "(node: JsonNode): " ++ (camelize n) ++ " ="
-                                                        , (indent indentDelta) ++ "let"
-                                                        , join "\n" $ map (generateAssignment (indentDelta * 2)) ps
-                                                        , (indent indentDelta) ++ "result = " ++ (camelize n) ++ "(" ++ (join ", " (map (\(n, _, _) => (toNimName n) ++ ": " ++ (toNimName n)) ps)) ++ ")"
-                                                        ]
+        generateJsonToRecord (TRecord n ps) = List.join "\n" [ "proc jsonTo" ++ (camelize n) ++ "(node: JsonNode): " ++ (camelize n) ++ " ="
+                                                             , (indent indentDelta) ++ "let"
+                                                             , join "\n" $ map (generateAssignment (indentDelta * 2)) ps
+                                                             , (indent indentDelta) ++ "result = " ++ (camelize n) ++ "(" ++ (join ", " (map (\(n, _, _) => (toNimName n) ++ ": " ++ (toNimName n)) ps)) ++ ")"
+                                                             ]
         generateJsonToRecord _              = ""
 
-    generatePlayEvent : String -> List Event -> String
+    generatePlayEvent : String -> List1 Event -> String
     generatePlayEvent pre es
-      = join "\n" [ "proc play_event(fsm: " ++ pre ++ "StateMachine, model: " ++ pre ++ "Model, context: ServiceContext, event: string, payload: StringTableRef): " ++ pre ++ "Model ="
-                  , (indent indentDelta) ++ "case event:"
-                  , generateEventHandlers (indentDelta * 2) es
-                  , (indent (indentDelta * 2)) ++ "else:"
-                  , generateDefaultEventHandler (indentDelta * 3)
-                  ]
+      = List.join "\n" [ "proc play_event(fsm: " ++ pre ++ "StateMachine, model: " ++ pre ++ "Model, context: ServiceContext, event: string, payload: StringTableRef): " ++ pre ++ "Model ="
+                       , (indent indentDelta) ++ "case event:"
+                       , generateEventHandlers (indentDelta * 2) es
+                       , (indent (indentDelta * 2)) ++ "else:"
+                       , generateDefaultEventHandler (indentDelta * 3)
+                       ]
       where
         generateEventHandle : Nat -> Event -> String
         generateEventHandle idt evt@(MkEvent n ps _)
@@ -100,32 +101,32 @@ toNim fsm
 
             generateEventCall : Nat -> Event -> String
             generateEventCall idt (MkEvent n ps _)
-              = (indent idt) ++ "result = " ++ (toNimName n) ++ "(" ++ (join ", " (map (\(n, _, _) => toNimName n) (("fsm", (TPrimType PTBool), Nothing) :: (("model", (TPrimType PTBool), Nothing) :: ps)))) ++ ")"
+              = (indent idt) ++ "result = " ++ (toNimName n) ++ "(" ++ (List.join ", " (map (\(n, _, _) => toNimName n) (("fsm", (TPrimType PTBool), Nothing) :: (("model", (TPrimType PTBool), Nothing) :: ps)))) ++ ")"
 
             generateQueueHandler : Nat -> String
             generateQueueHandler idt
-              = join "\n" [ (indent idt) ++ "while len(queue) > 0:"
-                          , (indent (idt + indentDelta)) ++ "let msgfun = queue.popFirst"
-                          , (indent (idt + indentDelta)) ++ "msgfun(context)"
-                          ]
+              = List.join "\n" [ (indent idt) ++ "while len(queue) > 0:"
+                               , (indent (idt + indentDelta)) ++ "let msgfun = queue.popFirst"
+                               , (indent (idt + indentDelta)) ++ "msgfun(context)"
+                               ]
 
-        generateEventHandlers : Nat -> List Event -> String
+        generateEventHandlers : Nat -> List1 Event -> String
         generateEventHandlers idt es
-          = join "\n" $ map (generateEventHandle idt) es
+          = List1.join "\n" $ map (generateEventHandle idt) es
 
         generateDefaultEventHandler : Nat -> String
         generateDefaultEventHandler idt
-          = join "\n" [ (indent idt) ++ "info \"Unknown event: \" & event"
-                      , (indent idt) ++ "info detail(payload, 2)"
-                      , (indent idt) ++ "result = model"
-                      ]
+          = List.join "\n" [ (indent idt) ++ "info \"Unknown event: \" & event"
+                           , (indent idt) ++ "info detail(payload, 2)"
+                           , (indent idt) ++ "result = model"
+                           ]
 
     generateToJson : String -> List Parameter -> String
     generateToJson pre ps
-      = join "\n" [ "proc to_json(model: " ++ pre ++ "Model): JsonNode ="
-                  , (indent indentDelta) ++ "result = newJObject()"
-                  , generateModelToJson indentDelta ps
-                  ]
+      = List.join "\n" [ "proc to_json(model: " ++ pre ++ "Model): JsonNode ="
+                       , (indent indentDelta) ++ "result = newJObject()"
+                       , generateModelToJson indentDelta ps
+                       ]
       where
         generateModelToJson : Nat -> List Parameter -> String
         generateModelToJson idt ps
@@ -133,10 +134,10 @@ toNim fsm
 
     generateFromJson : String -> List Parameter -> String
     generateFromJson pre ps
-      = join "\n" [ "proc from_json(node: JsonNode): " ++ pre ++ "Model ="
-                  , (indent indentDelta) ++ "result = new(" ++ pre ++ "Model)"
-                  , generateModelFromJson indentDelta ps
-                  ]
+      = List.join "\n" [ "proc from_json(node: JsonNode): " ++ pre ++ "Model ="
+                       , (indent indentDelta) ++ "result = new(" ++ pre ++ "Model)"
+                       , generateModelFromJson indentDelta ps
+                       ]
       where
         generateAttributeFromJson : Nat -> Parameter -> String
         generateAttributeFromJson idt (n, t, _)
@@ -162,12 +163,12 @@ toNim fsm
         generateOutputDelegate idt pre name env params body (OutputAction n es)
           = let funname = "output_" ++ (toNimName n)
                 indexed = enumerate $ map (\x => fromMaybe TUnit $ inferType env x) es in
-                join "\n" [ (indent idt) ++ "proc " ++ funname ++ "(" ++ (join ", " (map (\(n', t) => (toNimName n') ++ ": " ++ (toNimType t)) (("model", TRecord (pre ++ "Model") []) :: (map (\(i, t) => ("a" ++ show i, t)) indexed)))) ++ ") ="
-                          , (indent (idt + indentDelta)) ++ "queue.addLast(proc (ctx: ServiceContext) ="
-                          , (indent (idt + indentDelta * 2)) ++ "info \"" ++ funname ++ " \", ctx.fsmid" ++ (foldl (\acc, (i, t) => acc ++ (case t of (TPrimType PTString) => ", \" \", a"; _ => ", \" \", $a") ++ (show i)) "" indexed)
-                          , body (idt + indentDelta * 2) name funname indexed params
-                          , (indent (idt + indentDelta)) ++ ")"
-                          ]
+                List.join "\n" [ (indent idt) ++ "proc " ++ funname ++ "(" ++ (List.join ", " (map (\(n', t) => (toNimName n') ++ ": " ++ (toNimType t)) (("model", TRecord (pre ++ "Model") []) :: (map (\(i, t) => ("a" ++ show i, t)) indexed)))) ++ ") ="
+                               , (indent (idt + indentDelta)) ++ "queue.addLast(proc (ctx: ServiceContext) ="
+                               , (indent (idt + indentDelta * 2)) ++ "info \"" ++ funname ++ " \", ctx.fsmid" ++ (foldl (\acc, (i, t) => acc ++ (case t of (TPrimType PTString) => ", \" \", a"; _ => ", \" \", $a") ++ (show i)) "" indexed)
+                               , body (idt + indentDelta * 2) name funname indexed params
+                               , (indent (idt + indentDelta)) ++ ")"
+                               ]
         generateOutputDelegate idt env pre name params body _ = ""
 
         generateNonDefaultOutputDelegates : Nat -> String -> String -> SortedMap Expression Tipe -> List Parameter -> List Action -> String
@@ -200,37 +201,37 @@ toNim fsm
 
             addToStateListBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
             addToStateListBodyGenerator idt name funname indexed _
-              = join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#" ++ name ++ ".\" & a0"
-                          , (indent idt) ++ "discard ctx.cache_redis.zadd(key, @[(cast[int](from_mytimestamp(ctx.occurred_at).toTime.toUnix), $ctx.fsmid)])"
-                          ]
+              = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#" ++ name ++ ".\" & a0"
+                               , (indent idt) ++ "discard ctx.cache_redis.zadd(key, @[(cast[int](from_mytimestamp(ctx.occurred_at).toTime.toUnix), $ctx.fsmid)])"
+                               ]
 
             removeFromStateListBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
             removeFromStateListBodyGenerator idt name funname indexed _
-              = join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#" ++ name ++ ".\" & a0"
-                          , (indent idt) ++ "discard ctx.cache_redis.zrem(key, @[$ctx.fsmid])"
-                          ]
+              = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#" ++ name ++ ".\" & a0"
+                               , (indent idt) ++ "discard ctx.cache_redis.zrem(key, @[$ctx.fsmid])"
+                               ]
 
             responseBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
             responseBodyGenerator idt name funname indexed _
-              = join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#cb:\" & ctx.callback"
-                          , (indent idt) ++ "discard ctx.cache_redis.setex(key, \"\"\"{\"code\":$1, \"payload\":\"$2\"}\"\"\" % [$a0, a1], 60)"
-                          ]
+              = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#cb:\" & ctx.callback"
+                               , (indent idt) ++ "discard ctx.cache_redis.setex(key, \"\"\"{\"code\":$1, \"payload\":\"$2\"}\"\"\" % [$a0, a1], 60)"
+                               ]
 
             responseIdBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
             responseIdBodyGenerator idt name funname indexed _
-              = join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#cb:\" & ctx.callback"
-                          , (indent idt) ++ "discard ctx.cache_redis.setex(key, \"\"\"{\"code\":200, \"payload\":\"$1\"}\"\"\" % $ ctx.fsmid, 60)"
-                          ]
+              = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#cb:\" & ctx.callback"
+                               , (indent idt) ++ "discard ctx.cache_redis.setex(key, \"\"\"{\"code\":200, \"payload\":\"$1\"}\"\"\" % $ ctx.fsmid, 60)"
+                               ]
 
             syncModelBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
             syncModelBodyGenerator idt name funname indexed params
-              = join "\n" [ (indent idt) ++ "let"
-                          , (indent (idt + indentDelta)) ++ "key = \"tenant:\" & $ctx.tenant & \"#" ++ name ++ ":\" & $ ctx.fsmid"
-                          , (indent (idt + indentDelta)) ++ "args = @{"
-                          , generateArguments (idt + indentDelta * 2) params
-                          , (indent (idt + indentDelta)) ++ "}"
-                          , (indent idt) ++ "discard ctx.cache_redis.hmset(key, args)"
-                          ]
+              = List.join "\n" [ (indent idt) ++ "let"
+                               , (indent (idt + indentDelta)) ++ "key = \"tenant:\" & $ctx.tenant & \"#" ++ name ++ ":\" & $ ctx.fsmid"
+                               , (indent (idt + indentDelta)) ++ "args = @{"
+                               , generateArguments (idt + indentDelta * 2) params
+                               , (indent (idt + indentDelta)) ++ "}"
+                               , (indent idt) ++ "discard ctx.cache_redis.hmset(key, args)"
+                               ]
               where
                 generateArgument : Nat -> Parameter -> String
                 generateArgument idt (n, t, _)
@@ -254,23 +255,23 @@ toNim fsm
           = let aas = assignmentActions fsm
                 aes = nubBy (applicationExpressionEqualityChecker env) $ filter applicationExpressionFilter $ flatten $ map expressionsOfAction aas
                 oas = outputActions fsm
-                ges = nubBy (applicationExpressionEqualityChecker env) $ filter applicationExpressionFilter $ flatten $ map expressionsOfTestExpression $ flatten $ map guardsOfTransition fsm.transitions in
-                join "\n" $ filter nonblank [ (indent idt) ++ "let"
-                                            , generateInitActionDelegates (idt + indentDelta) pre name aes
-                                            , generateInitOutputDelegates (idt + indentDelta) pre oas
-                                            , generateInitGuardDelegates (idt + indentDelta) pre name ges
-                                            , generateInitStateMachine (idt + indentDelta) pre (length aes > Z) (length oas > Z) (length ges > Z)
-                                            , generateInitServiceDelegate (idt + indentDelta) pre
-                                            , (indent idt) ++ "run[" ++ pre ++ "StateMachine, " ++ pre ++ "Model](bfsm, \"%%NAME%%\", \"%%DBUSER%%\", \"%%DBNAME%%\", \"%%TABLE-NAME%%\", \"%%INPUT-QUEUE%%\", \"%%OUTPUT-QUEUE%%\", delegate)"
-                                            ]
+                ges = nubBy (applicationExpressionEqualityChecker env) $ filter applicationExpressionFilter $ flatten $ map expressionsOfTestExpression $ flatten $ List1.toList $ map guardsOfTransition fsm.transitions in
+                List.join "\n" $ filter nonblank [ (indent idt) ++ "let"
+                                                 , generateInitActionDelegates (idt + indentDelta) pre name aes
+                                                 , generateInitOutputDelegates (idt + indentDelta) pre oas
+                                                 , generateInitGuardDelegates (idt + indentDelta) pre name ges
+                                                 , generateInitStateMachine (idt + indentDelta) pre (length aes > Z) (length oas > Z) (length ges > Z)
+                                                 , generateInitServiceDelegate (idt + indentDelta) pre
+                                                 , (indent idt) ++ "run[" ++ pre ++ "StateMachine, " ++ pre ++ "Model](bfsm, \"%%NAME%%\", \"%%DBUSER%%\", \"%%DBNAME%%\", \"%%TABLE-NAME%%\", \"%%INPUT-QUEUE%%\", \"%%OUTPUT-QUEUE%%\", delegate)"
+                                                 ]
           where
 
             generateInitActionDelegates : Nat -> String -> String -> List Expression -> String
             generateInitActionDelegates idt pre name []  = ""
-            generateInitActionDelegates idt pre name aes = join "\n" [ (indent idt) ++ "action_delegate = " ++ pre ++ "ActionDelegate("
-                                                                     , join ",\n" $ map (generateInitActionDelegate (idt + indentDelta) name) aes
-                                                                     , (indent idt) ++ ")"
-                                                                     ]
+            generateInitActionDelegates idt pre name aes = List.join "\n" [ (indent idt) ++ "action_delegate = " ++ pre ++ "ActionDelegate("
+                                                                          , join ",\n" $ map (generateInitActionDelegate (idt + indentDelta) name) aes
+                                                                          , (indent idt) ++ ")"
+                                                                          ]
               where
                 toActionFuncName : Name -> String
                 toActionFuncName "+" = "plus"
@@ -285,10 +286,10 @@ toNim fsm
 
             generateInitOutputDelegates : Nat -> String -> List Action -> String
             generateInitOutputDelegates idt pre [] = ""
-            generateInitOutputDelegates idt pre as = join "\n" [ (indent idt) ++ "output_delegate = " ++ pre ++ "OutputDelegate("
-                                                               , join ",\n" $ map (generateInitOutputDelegate (idt + indentDelta)) as
-                                                               , (indent idt) ++ ")"
-                                                               ]
+            generateInitOutputDelegates idt pre as = List.join "\n" [ (indent idt) ++ "output_delegate = " ++ pre ++ "OutputDelegate("
+                                                                    , join ",\n" $ map (generateInitOutputDelegate (idt + indentDelta)) as
+                                                                    , (indent idt) ++ ")"
+                                                                    ]
               where
                 generateInitOutputDelegate : Nat -> Action -> String
                 generateInitOutputDelegate idt (OutputAction n _) = (indent idt) ++ (toNimName n) ++ ": output_" ++ (toNimName n)
@@ -296,10 +297,10 @@ toNim fsm
 
             generateInitGuardDelegates : Nat -> String -> String -> List Expression -> String
             generateInitGuardDelegates idt pre name [] = ""
-            generateInitGuardDelegates idt pre name es = join "\n" [ (indent idt) ++ "guard_delegate = " ++ pre ++ "GuardDelegate("
-                                                                   , join ",\n" $ map (generateInitGuardDelegate (idt + indentDelta) name) es
-                                                                   , (indent idt) ++ ")"
-                                                                   ]
+            generateInitGuardDelegates idt pre name es = List.join "\n" [ (indent idt) ++ "guard_delegate = " ++ pre ++ "GuardDelegate("
+                                                                        , join ",\n" $ map (generateInitGuardDelegate (idt + indentDelta) name) es
+                                                                        , (indent idt) ++ ")"
+                                                                        ]
               where
                 generateInitGuardDelegate : Nat -> String -> Expression -> String
                 generateInitGuardDelegate idt name (ApplicationExpression n _) = (indent idt) ++ (toNimName n) ++ ": " ++ name ++ "_guard_" ++ (toNimName n)
@@ -313,16 +314,16 @@ toNim fsm
                            , if gd then (indent (idt + indentDelta)) ++ "guard_delegate: guard_delegate," else ""
                            , (indent idt) ++ ")"
                            ] in
-                    join "\n" $ filter (\x => length x > Z) code
+                    List.join "\n" $ filter (\x => length x > Z) code
 
             generateInitServiceDelegate : Nat -> String -> String
             generateInitServiceDelegate idt pre
-              = join "\n" [ (indent idt) ++ "delegate = ServiceDelegate[" ++ pre ++ "StateMachine, " ++ pre ++ "Model]("
-                          , (indent (idt + indentDelta)) ++ "play_event: play_event,"
-                          , (indent (idt + indentDelta)) ++ "from_json: from_json,"
-                          , (indent (idt + indentDelta)) ++ "to_json: to_json,"
-                          , (indent idt) ++ ")"
-                          ]
+              = List.join "\n" [ (indent idt) ++ "delegate = ServiceDelegate[" ++ pre ++ "StateMachine, " ++ pre ++ "Model]("
+                               , (indent (idt + indentDelta)) ++ "play_event: play_event,"
+                               , (indent (idt + indentDelta)) ++ "from_json: from_json,"
+                               , (indent (idt + indentDelta)) ++ "to_json: to_json,"
+                               , (indent idt) ++ ")"
+                               ]
 
 loadFsm : String -> Either String Fsm
 loadFsm src
