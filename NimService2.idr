@@ -28,15 +28,15 @@ toNim fsm
         pre = camelize name
         events = fsm.events
         records = liftRecords fsm.model in
-        join "\n\n" $ filter nonblank [ generateImports name
-                                      , generateTypes
-                                      , "var queue = initDeque[MessageFunc](8)"
-                                      , generateJsonToRecords records
-                                      , generatePlayEvent pre events
-                                      , generateToJson pre fsm.model
-                                      , generateFromJson pre fsm.model
-                                      , generateMainModule pre name fsm
-                                      ]
+        join "\n\n" $ List.filter nonblank [ generateImports name
+                                           , generateTypes
+                                           , "var queue = initDeque[MessageFunc](8)"
+                                           , generateJsonToRecords records
+                                           , generatePlayEvent pre events
+                                           , generateToJson pre fsm.model
+                                           , generateFromJson pre fsm.model
+                                           , generateMainModule pre name fsm
+                                           ]
   where
     generateImports : String -> String
     generateImports name
@@ -84,7 +84,7 @@ toNim fsm
                        , generateEventCall (idt + indentDelta) evt
                        , generateQueueHandler (idt + indentDelta)
                        ] in
-                join "\n" $ filter (\x => length x > 0) srcs
+                join "\n" $ List.filter (\x => length x > 0) srcs
           where
             generateFetchEventArg : Nat -> Parameter -> String
             generateFetchEventArg idt (n, t, _)
@@ -153,11 +153,11 @@ toNim fsm
       = let env = rootEnv fsm
             params = fsm.model
             actions = outputActions fsm in
-            join "\n\n" $ filter nonblank [ "when isMainModule:"
-                                          , generateNonDefaultOutputDelegates indentDelta pre name env params actions
-                                          , generateDefaultOutputDelegates indentDelta pre name env params actions
-                                          , generateMainCode indentDelta pre name env fsm
-                                          ]
+            join "\n\n" $ List.filter nonblank [ "when isMainModule:"
+                                               , generateNonDefaultOutputDelegates indentDelta pre name env params actions
+                                               , generateDefaultOutputDelegates indentDelta pre name env params actions
+                                               , generateMainCode indentDelta pre name env fsm
+                                               ]
       where
         generateOutputDelegate : Nat -> String -> String -> SortedMap Expression Tipe -> List Parameter -> (Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String) -> Action -> String
         generateOutputDelegate idt pre name env params body (OutputAction n es)
@@ -213,14 +213,14 @@ toNim fsm
 
             responseBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
             responseBodyGenerator idt name funname indexed _
-              = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#cb:\" & ctx.callback"
-                               , (indent idt) ++ "discard ctx.cache_redis.setex(key, \"\"\"{\"code\":$1, \"payload\":\"$2\"}\"\"\" % [$a0, a1], 60)"
+              = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#callback:\" & ctx.callback"
+                               , (indent idt) ++ "discard ctx.cache_redis.setex(key, \"\"\"{\"code\":$1,\"payload\":\"$2\"}\"\"\" % [$a0, a1], 60)"
                                ]
 
             responseIdBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
             responseIdBodyGenerator idt name funname indexed _
-              = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#cb:\" & ctx.callback"
-                               , (indent idt) ++ "discard ctx.cache_redis.setex(key, \"\"\"{\"code\":200, \"payload\":\"$1\"}\"\"\" % $ ctx.fsmid, 60)"
+              = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#callback:\" & ctx.callback"
+                               , (indent idt) ++ "discard ctx.cache_redis.setex(key, \"\"\"{\"code\":200,\"payload\":\"$1\"}\"\"\" % $ ctx.fsmid, 60)"
                                ]
 
             syncModelBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
@@ -256,14 +256,14 @@ toNim fsm
                 aes = nubBy (applicationExpressionEqualityChecker env) $ filter applicationExpressionFilter $ flatten $ map expressionsOfAction aas
                 oas = outputActions fsm
                 ges = nubBy (applicationExpressionEqualityChecker env) $ filter applicationExpressionFilter $ flatten $ map expressionsOfTestExpression $ flatten $ List1.toList $ map guardsOfTransition fsm.transitions in
-                List.join "\n" $ filter nonblank [ (indent idt) ++ "let"
-                                                 , generateInitActionDelegates (idt + indentDelta) pre name aes
-                                                 , generateInitOutputDelegates (idt + indentDelta) pre oas
-                                                 , generateInitGuardDelegates (idt + indentDelta) pre name ges
-                                                 , generateInitStateMachine (idt + indentDelta) pre (length aes > Z) (length oas > Z) (length ges > Z)
-                                                 , generateInitServiceDelegate (idt + indentDelta) pre
-                                                 , (indent idt) ++ "run[" ++ pre ++ "StateMachine, " ++ pre ++ "Model](bfsm, \"%%NAME%%\", \"%%DBUSER%%\", \"%%DBNAME%%\", \"%%TABLE-NAME%%\", \"%%INPUT-QUEUE%%\", \"%%OUTPUT-QUEUE%%\", delegate)"
-                                                 ]
+                List.join "\n" $ List.filter nonblank [ (indent idt) ++ "let"
+                                                      , generateInitActionDelegates (idt + indentDelta) pre name aes
+                                                      , generateInitOutputDelegates (idt + indentDelta) pre oas
+                                                      , generateInitGuardDelegates (idt + indentDelta) pre name ges
+                                                      , generateInitStateMachine (idt + indentDelta) pre (length aes > Z) (length oas > Z) (length ges > Z)
+                                                      , generateInitServiceDelegate (idt + indentDelta) pre
+                                                      , (indent idt) ++ "run[" ++ pre ++ "StateMachine, " ++ pre ++ "Model](bfsm, \"%%NAME%%\", \"%%DBUSER%%\", \"%%DBNAME%%\", \"%%TABLE-NAME%%\", \"%%INPUT-QUEUE%%\", \"%%OUTPUT-QUEUE%%\", delegate)"
+                                                      ]
           where
 
             generateInitActionDelegates : Nat -> String -> String -> List Expression -> String
@@ -314,7 +314,7 @@ toNim fsm
                            , if gd then (indent (idt + indentDelta)) ++ "guard_delegate: guard_delegate," else ""
                            , (indent idt) ++ ")"
                            ] in
-                    List.join "\n" $ filter (\x => length x > Z) code
+                    List.join "\n" $ List.filter (\x => length x > Z) code
 
             generateInitServiceDelegate : Nat -> String -> String
             generateInitServiceDelegate idt pre
