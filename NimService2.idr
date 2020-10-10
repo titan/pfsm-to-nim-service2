@@ -281,7 +281,7 @@ toNim fsm
                 toActionFuncName n   = toNimName n
 
                 generateInitActionDelegate : Nat -> String -> Expression -> String
-                generateInitActionDelegate idt name (ApplicationExpression n _) = (indent idt) ++ (toNimFuncName n) ++ ": " ++ name ++ "_action_" ++ (toActionFuncName n)
+                generateInitActionDelegate idt name (ApplicationExpression n _) = (indent idt) ++ (toNimFuncName n) ++ ": " ++ (toNimName name) ++ "_action_" ++ (toActionFuncName n)
                 generateInitActionDelegate idt name _                           = ""
 
             generateInitOutputDelegates : Nat -> String -> List Action -> String
