@@ -185,7 +185,7 @@ toNim fsm
 
             bodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
             bodyGenerator idt name funname indexed params
-              = (indent idt) ++ name ++ "_" ++ funname ++ "(" ++ (foldl (\acc, (i, _) => acc ++ ", a" ++ (show i)) "ctx, model" indexed) ++ ")"
+              = (indent idt) ++ (toNimName name) ++ "_" ++ funname ++ "(" ++ (foldl (\acc, (i, _) => acc ++ ", a" ++ (show i)) "ctx, model" indexed) ++ ")"
 
         generateDefaultOutputDelegates : Nat -> String -> String -> SortedMap Expression Tipe -> List Parameter -> List Action -> String
         generateDefaultOutputDelegates idt pre name env params as
