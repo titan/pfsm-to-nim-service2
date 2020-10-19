@@ -1,7 +1,6 @@
-NAME=pfsm-to-nim-service2
+include .config
 NAME-LINK=$(subst _,-,$(NAME))
 
-include .config
 ESCAPED-BUILDDIR = $(shell echo '$(BUILDDIR)' | sed 's%/%\\/%g')
 TARGET=$(BUILDDIR)/build/exec/$(NAME-LINK)
 PKGPREFIX=.
