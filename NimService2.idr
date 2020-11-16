@@ -70,7 +70,7 @@ toNim fsm
 
     generatePlayEvent : String -> List1 Event -> String
     generatePlayEvent pre es
-      = List.join "\n" [ "proc play_event(fsm: " ++ pre ++ "StateMachine, model: " ++ pre ++ "Model, context: ServiceContext, event: string, payload: StringTableRef): " ++ pre ++ "Model ="
+      = List.join "\n" [ "proc play_event(fsm: " ++ pre ++ "StateMachine, model: " ++ pre ++ "Model, context: ServiceContext, event: string, payload: JsonNode): " ++ pre ++ "Model ="
                        , (indent indentDelta) ++ "case event:"
                        , generateEventHandlers (indentDelta * 2) es
                        , (indent (indentDelta * 2)) ++ "else:"
@@ -89,8 +89,8 @@ toNim fsm
             generateFetchEventArg : Nat -> Parameter -> String
             generateFetchEventArg idt (n, t, _)
               = let lhs = (indent idt) ++ (toNimName n)
-                    rhs = "payload.getOrDefault(\"" ++ (toUpper n) ++ "\")" in
-                    lhs ++ " = " ++ (toNimFromString rhs t)
+                    rhs = "payload{\"" ++ n ++ "\"}" in
+                    lhs ++ " = " ++ (toNimFromJson rhs t)
 
             generateFetchEventArgs : Nat -> List Parameter -> String
             generateFetchEventArgs idt ps
@@ -117,7 +117,7 @@ toNim fsm
         generateDefaultEventHandler : Nat -> String
         generateDefaultEventHandler idt
           = List.join "\n" [ (indent idt) ++ "info \"Unknown event: \" & event"
-                           , (indent idt) ++ "info detail(payload, 2)"
+                           , (indent idt) ++ "info pretty(payload)"
                            , (indent idt) ++ "result = model"
                            ]
 
@@ -251,7 +251,7 @@ toNim fsm
               where
                 generateArgument : Nat -> Parameter -> String
                 generateArgument idt (n, t, _)
-                  = (indent idt) ++ "\"" ++ (toUpper n) ++ "\": " ++ (toNimString ("model." ++ n) t)
+                  = (indent idt) ++ "\"" ++ (toUpper n) ++ "\": " ++ (toNimString ("model." ++ (toNimName n)) t)
 
                 generateArguments : Nat -> List Parameter -> String
                 generateArguments idt ps
