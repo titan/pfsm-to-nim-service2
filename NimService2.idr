@@ -151,29 +151,29 @@ toNim fsm
     generateMainModule : String -> String -> Fsm -> String
     generateMainModule pre name fsm
       = let env = rootEnv fsm
-            params = fsm.model
+            model = fsm.model
             actions = outputActions fsm in
             join "\n\n" $ List.filter nonblank [ "when isMainModule:"
-                                               , generateNonDefaultOutputDelegates indentDelta pre name env params actions
-                                               , generateDefaultOutputDelegates indentDelta pre name env params actions
+                                               , generateNonDefaultOutputDelegates indentDelta pre name env model actions
+                                               , generateDefaultOutputDelegates indentDelta pre name env model actions
                                                , generateMainCode indentDelta pre name env fsm
                                                ]
       where
         generateOutputDelegate : Nat -> String -> String -> SortedMap Expression Tipe -> List Parameter -> (Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String) -> Action -> String
-        generateOutputDelegate idt pre name env params body (OutputAction n es)
+        generateOutputDelegate idt pre name env model body (OutputAction n es)
           = let funname = "output_" ++ (toNimName n)
                 indexed = enumerate $ map (\x => fromMaybe TUnit $ inferType env x) es in
                 List.join "\n" [ (indent idt) ++ "proc " ++ funname ++ "(" ++ (List.join ", " (map (\(n', t) => (toNimName n') ++ ": " ++ (toNimType t)) (("model", TRecord (pre ++ "Model") []) :: (map (\(i, t) => ("a" ++ show i, t)) indexed)))) ++ ") ="
                                , (indent (idt + indentDelta)) ++ "queue.addLast(proc (ctx: ServiceContext) ="
                                , (indent (idt + indentDelta * 2)) ++ "info \"" ++ funname ++ " \", ctx.fsmid" ++ (foldl (\acc, (i, t) => acc ++ (case t of (TPrimType PTString) => ", \" \", a"; _ => ", \" \", $a") ++ (show i)) "" indexed)
-                               , body (idt + indentDelta * 2) name funname indexed params
+                               , body (idt + indentDelta * 2) name funname indexed model
                                , (indent (idt + indentDelta)) ++ ")"
                                ]
-        generateOutputDelegate idt env pre name params body _ = ""
+        generateOutputDelegate idt env pre name model body _ = ""
 
         generateNonDefaultOutputDelegates : Nat -> String -> String -> SortedMap Expression Tipe -> List Parameter -> List Action -> String
-        generateNonDefaultOutputDelegates idt pre name env params as
-          = join "\n\n" $ filter nonblank $ map (generateOutputDelegate idt pre name env params bodyGenerator) $ filter nonDefaultOutputActionFilter as
+        generateNonDefaultOutputDelegates idt pre name env model as
+          = join "\n\n" $ filter nonblank $ map (generateOutputDelegate idt pre name env model bodyGenerator) $ filter nonDefaultOutputActionFilter as
           where
             nonDefaultOutputActionFilter : Action -> Bool
             nonDefaultOutputActionFilter (OutputAction "add-to-state-list" _)                     = False
@@ -186,12 +186,12 @@ toNim fsm
             nonDefaultOutputActionFilter _                                                        = True
 
             bodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
-            bodyGenerator idt name funname indexed params
+            bodyGenerator idt name funname indexed model
               = (indent idt) ++ (toNimName name) ++ "_" ++ funname ++ "(" ++ (foldl (\acc, (i, _) => acc ++ ", a" ++ (show i)) "ctx, model" indexed) ++ ")"
 
         generateDefaultOutputDelegates : Nat -> String -> String -> SortedMap Expression Tipe -> List Parameter -> List Action -> String
-        generateDefaultOutputDelegates idt pre name env params as
-          = join "\n\n" $ filter nonblank $ map (generateDefaultOutputDelegate idt pre name env params) $ filter defaultOutputActionFilter as
+        generateDefaultOutputDelegates idt pre name env model as
+          = join "\n\n" $ filter nonblank $ map (generateDefaultOutputDelegate idt pre name env model) $ filter defaultOutputActionFilter as
           where
             defaultOutputActionFilter : Action -> Bool
             defaultOutputActionFilter (OutputAction "add-to-state-list" _)                     = True
@@ -203,17 +203,55 @@ toNim fsm
             defaultOutputActionFilter (OutputAction "sync-model" _)                            = True
             defaultOutputActionFilter _                                                        = False
 
+            manyToOneFieldFilter : Parameter -> Bool
+            manyToOneFieldFilter (_, _, ms) = case lookup "reference" ms of
+                                                   Just (MVString _) => case lookup "mapping" ms of
+                                                                             Just (MVString "many-to-one") => True
+                                                                             _ => False
+                                                   _ => False
+
+            generateCacheKeyOfStateList : Nat -> Nat -> String -> String -> String
+            generateCacheKeyOfStateList idt idx name ref
+              = (indent idt) ++ "key" ++ (show (idx + 1)) ++ " = \"tenant:\" & $ctx.tenant & \"#" ++ ref ++ ":\" & $model." ++ (toNimName ref) ++ " & \"#" ++ name ++ ".\" & a0"
+
+            generateCacheAction : Nat -> Nat -> (Nat -> Nat -> String) -> String
+            generateCacheAction idt cnt action
+              = generateCacheAction' [] idt cnt action
+              where
+                generateCacheAction' : List String -> Nat -> Nat -> (Nat -> Nat -> String) -> String
+                generateCacheAction' acc idt Z     action = List.join "\n" ((action idt 0) :: acc)
+                generateCacheAction' acc idt (S n) action = generateCacheAction' ((action idt (S n)) :: acc) idt n action
+
             addToStateListBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
-            addToStateListBodyGenerator idt name funname indexed _
-              = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#" ++ name ++ ".\" & a0"
-                               , (indent idt) ++ "discard ctx.cache_redis.zadd(key, @[(cast[int](from_mytimestamp(ctx.occurred_at).toTime.toUnix), $ctx.fsmid)])"
-                               ]
+            addToStateListBodyGenerator idt name funname indexed model
+              = let manyToOneFields = filter manyToOneFieldFilter model in
+                    join "\n" $ List.filter nonblank [ (indent idt) ++ "let"
+                                                     , (indent (idt + indentDelta)) ++ "occurred_at = cast[int](from_mytimestamp(ctx.occurred_at).toTime.toUnix)"
+                                                     , (indent (idt + indentDelta)) ++ "key0 = \"tenant:\" & $ctx.tenant & \"#" ++ name ++ ".\" & a0"
+                                                     , List.join "\n" $ map (\(idx, (n, _, _)) => generateCacheKeyOfStateList (idt + indentDelta) idx name n) $ enumerate manyToOneFields
+                                                     , if length manyToOneFields > 0 then ((indent idt) ++ "discard ctx.cache_redis.multi") else ""
+                                                     , generateCacheAction idt (length manyToOneFields) generateCacheZAddAction
+                                                     , if length manyToOneFields > 0 then ((indent idt) ++ "discard ctx.cache_redis.exec") else ""
+                                                     ]
+              where
+                generateCacheZAddAction : Nat -> Nat -> String
+                generateCacheZAddAction idt idx
+                  = (indent idt) ++ "discard ctx.cache_redis.zadd(key" ++ (show idx) ++ ", @[(occurred_at, $ctx.fsmid)])"
 
             removeFromStateListBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
-            removeFromStateListBodyGenerator idt name funname indexed _
-              = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#" ++ name ++ ".\" & a0"
-                               , (indent idt) ++ "discard ctx.cache_redis.zrem(key, @[$ctx.fsmid])"
-                               ]
+            removeFromStateListBodyGenerator idt name funname indexed model
+              = let manyToOneFields = filter manyToOneFieldFilter model in
+                    join "\n" $ List.filter nonblank [ (indent idt) ++ "let"
+                                                     , (indent (idt + indentDelta)) ++ "key0 = \"tenant:\" & $ctx.tenant & \"#" ++ name ++ ".\" & a0"
+                                                     , List.join "\n" $ map (\(idx, (n, _, _)) => generateCacheKeyOfStateList (idt + indentDelta) idx name n) $ enumerate manyToOneFields
+                                                     , if length manyToOneFields > 0 then ((indent idt) ++ "discard ctx.cache_redis.multi") else ""
+                                                     , generateCacheAction idt (length manyToOneFields) generateCacheZRemAction
+                                                     , if length manyToOneFields > 0 then ((indent idt) ++ "discard ctx.cache_redis.exec") else ""
+                                                     ]
+              where
+                generateCacheZRemAction : Nat -> Nat -> String
+                generateCacheZRemAction idt idx
+                  = (indent idt) ++ "discard ctx.cache_redis.zrem(key" ++ (show idx) ++ ", @[$ctx.fsmid])"
 
             addToStateListOfParticipantBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
             addToStateListOfParticipantBodyGenerator idt name funname indexed _
@@ -240,11 +278,11 @@ toNim fsm
                                ]
 
             syncModelBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
-            syncModelBodyGenerator idt name funname indexed params
+            syncModelBodyGenerator idt name funname indexed model
               = List.join "\n" [ (indent idt) ++ "let"
                                , (indent (idt + indentDelta)) ++ "key = \"tenant:\" & $ctx.tenant & \"#" ++ name ++ ":\" & $ ctx.fsmid"
                                , (indent (idt + indentDelta)) ++ "args = @{"
-                               , generateArguments (idt + indentDelta * 2) params
+                               , generateArguments (idt + indentDelta * 2) model
                                , (indent (idt + indentDelta)) ++ "}"
                                , (indent idt) ++ "discard ctx.cache_redis.hmset(key, args)"
                                ]
@@ -258,14 +296,14 @@ toNim fsm
                   = join ",\n" $ map (generateArgument idt) ps
 
             generateDefaultOutputDelegate : Nat -> String -> String -> SortedMap Expression Tipe -> List Parameter -> Action -> String
-            generateDefaultOutputDelegate idt pre name env params act@(OutputAction "add-to-state-list" _)                     = generateOutputDelegate idt pre name env params addToStateListBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env params act@(OutputAction "remove-from-state-list" _)                = generateOutputDelegate idt pre name env params removeFromStateListBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env params act@(OutputAction "add-to-state-list-of-participant" _)      = generateOutputDelegate idt pre name env params addToStateListOfParticipantBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env params act@(OutputAction "remove-from-state-list-of-participant" _) = generateOutputDelegate idt pre name env params removeFromStateListOfParticipantBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env params act@(OutputAction "response" _)                              = generateOutputDelegate idt pre name env params responseBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env params act@(OutputAction "response-id" _)                           = generateOutputDelegate idt pre name env params responseIdBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env params act@(OutputAction "sync-model" _)                            = generateOutputDelegate idt pre name env params syncModelBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env params _                                                            = ""
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "add-to-state-list" _)                     = generateOutputDelegate idt pre name env model addToStateListBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "remove-from-state-list" _)                = generateOutputDelegate idt pre name env model removeFromStateListBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "add-to-state-list-of-participant" _)      = generateOutputDelegate idt pre name env model addToStateListOfParticipantBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "remove-from-state-list-of-participant" _) = generateOutputDelegate idt pre name env model removeFromStateListOfParticipantBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "response" _)                              = generateOutputDelegate idt pre name env model responseBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "response-id" _)                           = generateOutputDelegate idt pre name env model responseIdBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "sync-model" _)                            = generateOutputDelegate idt pre name env model syncModelBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model _                                                            = ""
 
 
         generateMainCode : Nat -> String -> String -> SortedMap Expression Tipe -> Fsm -> String
