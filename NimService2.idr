@@ -32,6 +32,7 @@ toNim fsm
                                            , generateTypes
                                            , "var queue = initDeque[MessageFunc](8)"
                                            , generateJsonToRecords records
+                                           , generateRecordsToJson records
                                            , generatePlayEvent pre events
                                            , generateToJson pre fsm.model
                                            , generateFromJson pre fsm.model
@@ -58,7 +59,8 @@ toNim fsm
       = join "\n" $ filter nonblank $ map generateJsonToRecord ts
       where
         generateAssignment : Nat -> Parameter -> String
-        generateAssignment idt (n, t, _) = (indent idt) ++ (toNimName n) ++ " = " ++ (toNimFromJson ("node{\"" ++ n ++ "\"}") t)
+        generateAssignment idt (n, t, _)
+          = (indent idt) ++ (toNimName n) ++ " = " ++ (toNimFromJson ("node{\"" ++ n ++ "\"}") t)
 
         generateJsonToRecord : Tipe -> String
         generateJsonToRecord (TRecord n ps) = List.join "\n" [ "proc jsonTo" ++ (camelize n) ++ "(node: JsonNode): " ++ (camelize n) ++ " ="
@@ -67,6 +69,31 @@ toNim fsm
                                                              , (indent indentDelta) ++ "result = " ++ (camelize n) ++ "(" ++ (join ", " (map (\(n, _, _) => (toNimName n) ++ ": " ++ (toNimName n)) ps)) ++ ")"
                                                              ]
         generateJsonToRecord _              = ""
+
+    generateRecordsToJson : List Tipe -> String
+    generateRecordsToJson ts
+      = join "\n" $ filter nonblank $ map generateRecordToJson ts
+      where
+        generateToJson : Nat -> Parameter -> String
+        generateToJson idt (n, (TPrimType PTLong), _)
+          = (indent idt) ++ "result.add(\"" ++ n ++ "\", % $data." ++ (toNimName n) ++ ")"
+        generateToJson idt (n, (TPrimType PTULong), _)
+          = (indent idt) ++ "result.add(\"" ++ n ++ "\", % $data." ++ (toNimName n) ++ ")"
+        generateToJson idt (n, (TList (TPrimType PTLong)), _)
+          = (indent idt) ++ "result.add(\"" ++ n ++ "\", %data." ++ (toNimName n) ++ ".mapIt($it))"
+        generateToJson idt (n, (TList (TPrimType PTULong)), _)
+          = (indent idt) ++ "result.add(\"" ++ n ++ "\", %data." ++ (toNimName n) ++ ".mapIt($it))"
+        generateToJson idt (n, _, _)
+          = (indent idt) ++ "result.add(\"" ++ n ++ "\", %data." ++ (toNimName n) ++ ")"
+
+        generateRecordToJson : Tipe -> String
+        generateRecordToJson (TRecord n ps)
+          = List.join "\n" [ "proc " ++ (camelize n) ++ "ToJson(data: " ++ (camelize n) ++ "): JsonNode ="
+                           , (indent indentDelta) ++ "result = newJObject()"
+                           , join "\n" $ map (generateToJson indentDelta) ps
+                           ]
+        generateRecordToJson _
+          = ""
 
     generatePlayEvent : String -> List1 Event -> String
     generatePlayEvent pre es
@@ -125,12 +152,20 @@ toNim fsm
     generateToJson pre ps
       = List.join "\n" [ "proc to_json(model: " ++ pre ++ "Model): JsonNode ="
                        , (indent indentDelta) ++ "result = newJObject()"
-                       , generateModelToJson indentDelta ps
+                       , join "\n" $ map (generateModelToJson indentDelta) ps
                        ]
       where
-        generateModelToJson : Nat -> List Parameter -> String
-        generateModelToJson idt ps
-          = join "\n" $ map (\(n, _, _) => (indent idt) ++ "result.add(" ++ (show n) ++ ", % model." ++ (toNimName n) ++ ")") ps
+        generateModelToJson : Nat -> Parameter -> String
+        generateModelToJson idt (n, (TRecord rn _), _)
+          = (indent idt) ++ "result.add(" ++ (show n) ++ ", " ++ (camelize rn) ++ "toJson(model." ++ (toNimName n) ++ "))"
+        generateModelToJson idt (n, (TList (TRecord rn _)), _)
+          = List.join "\n" [ (indent idt) ++ "let " ++ (toNimName n) ++ " = newJArray()"
+                           , (indent idt) ++ "for i in model." ++ (toNimName n) ++ ".mapIt(" ++ (camelize rn) ++ "ToJson(it)):"
+                           , (indent (idt + indentDelta)) ++ (toNimName n) ++ ".add(i)"
+                           , (indent idt) ++ "result.add(" ++ (show n) ++ ", " ++ (toNimName n) ++ ")"
+                           ]
+        generateModelToJson idt (n, _, _)
+          = (indent idt) ++ "result.add(" ++ (show n) ++ ", % model." ++ (toNimName n) ++ ")"
 
     generateFromJson : String -> List Parameter -> String
     generateFromJson pre ps
