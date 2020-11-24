@@ -164,6 +164,22 @@ toNim fsm
                            , (indent (idt + indentDelta)) ++ (toNimName n) ++ ".add(i)"
                            , (indent idt) ++ "result.add(" ++ (show n) ++ ", " ++ (toNimName n) ++ ")"
                            ]
+        generateModelToJson idt (n, (TList (TPrimType PTLong)), _)
+          = List.join "\n" [ (indent idt) ++ "let " ++ (toNimName n) ++ " = newJArray()"
+                           , (indent idt) ++ "for i in model." ++ (toNimName n) ++ ".mapIt($it):"
+                           , (indent (idt + indentDelta)) ++ (toNimName n) ++ ".add(%i)"
+                           , (indent idt) ++ "result.add(" ++ (show n) ++ ", " ++ (toNimName n) ++ ")"
+                           ]
+        generateModelToJson idt (n, (TList (TPrimType PTULong)), _)
+          = List.join "\n" [ (indent idt) ++ "let " ++ (toNimName n) ++ " = newJArray()"
+                           , (indent idt) ++ "for i in model." ++ (toNimName n) ++ ".mapIt($it):"
+                           , (indent (idt + indentDelta)) ++ (toNimName n) ++ ".add(%i)"
+                           , (indent idt) ++ "result.add(" ++ (show n) ++ ", " ++ (toNimName n) ++ ")"
+                           ]
+        generateModelToJson idt (n, TPrimType PTLong, _)
+          = (indent idt) ++ "result.add(" ++ (show n) ++ ", % $model." ++ (toNimName n) ++ ")"
+        generateModelToJson idt (n, TPrimType PTULong, _)
+          = (indent idt) ++ "result.add(" ++ (show n) ++ ", % $model." ++ (toNimName n) ++ ")"
         generateModelToJson idt (n, _, _)
           = (indent idt) ++ "result.add(" ++ (show n) ++ ", % model." ++ (toNimName n) ++ ")"
 
@@ -245,9 +261,9 @@ toNim fsm
                                                                              _ => False
                                                    _ => False
 
-            generateCacheKeyOfStateList : Nat -> Nat -> String -> String -> String
-            generateCacheKeyOfStateList idt idx name ref
-              = (indent idt) ++ "key" ++ (show (idx + 1)) ++ " = \"tenant:\" & $ctx.tenant & \"#" ++ ref ++ ":\" & $model." ++ (toNimName ref) ++ " & \"#" ++ name ++ ".\" & a0"
+            generateCacheKeyOfStateList : Nat -> Nat -> String -> String -> String -> String
+            generateCacheKeyOfStateList idt idx name ref reftype
+              = (indent idt) ++ "key" ++ (show (idx + 1)) ++ " = \"tenant:\" & $ctx.tenant & \"#" ++ reftype ++ ":\" & $model." ++ (toNimName ref) ++ " & \"#" ++ name ++ ".\" & a0"
 
             generateCacheAction : Nat -> Nat -> (Nat -> Nat -> String) -> String
             generateCacheAction idt cnt action
@@ -263,7 +279,10 @@ toNim fsm
                     join "\n" $ List.filter nonblank [ (indent idt) ++ "let"
                                                      , (indent (idt + indentDelta)) ++ "occurred_at = cast[int](from_mytimestamp(ctx.occurred_at).toTime.toUnix)"
                                                      , (indent (idt + indentDelta)) ++ "key0 = \"tenant:\" & $ctx.tenant & \"#" ++ name ++ ".\" & a0"
-                                                     , List.join "\n" $ map (\(idx, (n, _, _)) => generateCacheKeyOfStateList (idt + indentDelta) idx name n) $ enumerate manyToOneFields
+                                                     , List.join "\n" $ map (\(idx, (n, _, metas)) =>
+                                                                            case lookup "reference" metas of
+                                                                                 Just (MVString reftype) => generateCacheKeyOfStateList (idt + indentDelta) idx name n reftype
+                                                                                 _ => generateCacheKeyOfStateList (idt + indentDelta) idx name n n) $ enumerate manyToOneFields
                                                      , if length manyToOneFields > 0 then ((indent idt) ++ "discard ctx.cache_redis.multi") else ""
                                                      , generateCacheAction idt (length manyToOneFields) generateCacheZAddAction
                                                      , if length manyToOneFields > 0 then ((indent idt) ++ "discard ctx.cache_redis.exec") else ""
@@ -278,7 +297,11 @@ toNim fsm
               = let manyToOneFields = filter manyToOneFieldFilter model in
                     join "\n" $ List.filter nonblank [ (indent idt) ++ "let"
                                                      , (indent (idt + indentDelta)) ++ "key0 = \"tenant:\" & $ctx.tenant & \"#" ++ name ++ ".\" & a0"
-                                                     , List.join "\n" $ map (\(idx, (n, _, _)) => generateCacheKeyOfStateList (idt + indentDelta) idx name n) $ enumerate manyToOneFields
+
+                                                     , List.join "\n" $ map (\(idx, (n, _, metas)) =>
+                                                                            case lookup "reference" metas of
+                                                                                 Just (MVString reftype) => generateCacheKeyOfStateList (idt + indentDelta) idx name n reftype
+                                                                                 _ => generateCacheKeyOfStateList (idt + indentDelta) idx name n n) $ enumerate manyToOneFields
                                                      , if length manyToOneFields > 0 then ((indent idt) ++ "discard ctx.cache_redis.multi") else ""
                                                      , generateCacheAction idt (length manyToOneFields) generateCacheZRemAction
                                                      , if length manyToOneFields > 0 then ((indent idt) ++ "discard ctx.cache_redis.exec") else ""
