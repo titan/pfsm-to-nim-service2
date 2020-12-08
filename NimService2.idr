@@ -313,13 +313,13 @@ toNim fsm
 
             addToStateListOfParticipantBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
             addToStateListOfParticipantBodyGenerator idt name funname indexed _
-              = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#\" & a1 & \":\" & $ctx.domain & \"#" ++ name ++ ".\" & a0"
+              = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#\" & a1 & \":\" & $a2 & \"#" ++ name ++ ".\" & a0"
                                , (indent idt) ++ "discard ctx.cache_redis.zadd(key, @[(cast[int](from_mytimestamp(ctx.occurred_at).toTime.toUnix), $ctx.fsmid)])"
                                ]
 
             removeFromStateListOfParticipantBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
             removeFromStateListOfParticipantBodyGenerator idt name funname indexed _
-              = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#\" & a1 & \":\" & $ctx.domain & \"#" ++ name ++ ".\" & a0"
+              = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#\" & a1 & \":\" & $a2 & \"#" ++ name ++ ".\" & a0"
                                , (indent idt) ++ "discard ctx.cache_redis.zrem(key, @[$ctx.fsmid])"
                                ]
 
