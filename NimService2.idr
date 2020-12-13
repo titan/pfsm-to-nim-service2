@@ -213,11 +213,11 @@ toNim fsm
         generateOutputDelegate : Nat -> String -> String -> SortedMap Expression Tipe -> List Parameter -> (Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String) -> Action -> String
         generateOutputDelegate idt pre name env model body (OutputAction n es)
           = let funname = "output_" ++ (toNimName n)
-                indexed = enumerate $ map (\x => fromMaybe TUnit $ inferType env x) es in
-                List.join "\n" [ (indent idt) ++ "proc " ++ funname ++ "(" ++ (List.join ", " (map (\(n', t) => (toNimName n') ++ ": " ++ (toNimType t)) (("model", TRecord (pre ++ "Model") []) :: (map (\(i, t) => ("a" ++ show i, t)) indexed)))) ++ ") ="
+                indexedParameters = enumerate $ map (\x => fromMaybe TUnit $ inferType env x) es in
+                List.join "\n" [ (indent idt) ++ "proc " ++ funname ++ "(" ++ (List.join ", " (map (\(n', t) => (toNimName n') ++ ": " ++ (toNimType t)) (("model", TRecord (pre ++ "Model") []) :: (map (\(i, t) => ("a" ++ show i, t)) indexedParameters)))) ++ ") ="
                                , (indent (idt + indentDelta)) ++ "queue.addLast(proc (ctx: ServiceContext) ="
-                               , (indent (idt + indentDelta * 2)) ++ "info \"" ++ funname ++ " \", ctx.fsmid" ++ (foldl (\acc, (i, t) => acc ++ (case t of (TPrimType PTString) => ", \" \", a"; _ => ", \" \", $a") ++ (show i)) "" indexed)
-                               , body (idt + indentDelta * 2) name funname indexed model
+                               , (indent (idt + indentDelta * 2)) ++ "info \"" ++ funname ++ " \", ctx.fsmid" ++ (foldl (\acc, (i, t) => acc ++ (case t of (TPrimType PTString) => ", \" \", a"; _ => ", \" \", $a") ++ (show i)) "" indexedParameters)
+                               , body (idt + indentDelta * 2) name funname indexedParameters model
                                , (indent (idt + indentDelta)) ++ ")"
                                ]
         generateOutputDelegate idt env pre name model body _ = ""
@@ -234,11 +234,19 @@ toNim fsm
             nonDefaultOutputActionFilter (OutputAction "response" _)                              = False
             nonDefaultOutputActionFilter (OutputAction "response-id" _)                           = False
             nonDefaultOutputActionFilter (OutputAction "sync-model" _)                            = False
+            nonDefaultOutputActionFilter (OutputAction "push-to-generic-index" _)                 = False
+            nonDefaultOutputActionFilter (OutputAction "flush-to-generic-index" _)                = False
+            nonDefaultOutputActionFilter (OutputAction "push-to-state-index" _)                   = False
+            nonDefaultOutputActionFilter (OutputAction "flush-to-state-index" _)                  = False
+            nonDefaultOutputActionFilter (OutputAction "push-to-generic-index-of-participant" _)  = False
+            nonDefaultOutputActionFilter (OutputAction "flush-to-generic-index-of-participant" _) = False
+            nonDefaultOutputActionFilter (OutputAction "push-to-state-index-of-participant" _)    = False
+            nonDefaultOutputActionFilter (OutputAction "flush-to-state-index-of-participant" _)   = False
             nonDefaultOutputActionFilter _                                                        = True
 
             bodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
-            bodyGenerator idt name funname indexed model
-              = (indent idt) ++ (toNimName name) ++ "_" ++ funname ++ "(" ++ (foldl (\acc, (i, _) => acc ++ ", a" ++ (show i)) "ctx, model" indexed) ++ ")"
+            bodyGenerator idt name funname indexedParameters model
+              = (indent idt) ++ (toNimName name) ++ "_" ++ funname ++ "(" ++ (foldl (\acc, (i, _) => acc ++ ", a" ++ (show i)) "ctx, model" indexedParameters) ++ ")"
 
         generateDefaultOutputDelegates : Nat -> String -> String -> SortedMap Expression Tipe -> List Parameter -> List Action -> String
         generateDefaultOutputDelegates idt pre name env model as
@@ -252,14 +260,23 @@ toNim fsm
             defaultOutputActionFilter (OutputAction "response" _)                              = True
             defaultOutputActionFilter (OutputAction "response-id" _)                           = True
             defaultOutputActionFilter (OutputAction "sync-model" _)                            = True
+            defaultOutputActionFilter (OutputAction "push-to-generic-index" _)                 = True
+            defaultOutputActionFilter (OutputAction "flush-to-generic-index" _)                = True
+            defaultOutputActionFilter (OutputAction "push-to-state-index" _)                   = True
+            defaultOutputActionFilter (OutputAction "flush-to-state-index" _)                  = True
+            defaultOutputActionFilter (OutputAction "push-to-generic-index-of-participant" _)  = True
+            defaultOutputActionFilter (OutputAction "flush-to-generic-index-of-participant" _) = True
+            defaultOutputActionFilter (OutputAction "push-to-state-index-of-participant" _)    = True
+            defaultOutputActionFilter (OutputAction "flush-to-state-index-of-participant" _)   = True
             defaultOutputActionFilter _                                                        = False
 
             manyToOneFieldFilter : Parameter -> Bool
-            manyToOneFieldFilter (_, _, ms) = case lookup "reference" ms of
-                                                   Just (MVString _) => case lookup "mapping" ms of
-                                                                             Just (MVString "many-to-one") => True
-                                                                             _ => False
-                                                   _ => False
+            manyToOneFieldFilter (_, _, ms)
+              = case lookup "reference" ms of
+                     Just (MVString _) => case lookup "mapping" ms of
+                                               Just (MVString "many-to-one") => True
+                                               _ => False
+                     _ => False
 
             generateCacheKeyOfStateList : Nat -> Nat -> String -> String -> String -> String
             generateCacheKeyOfStateList idt idx name ref reftype
@@ -274,7 +291,7 @@ toNim fsm
                 generateCacheAction' acc idt (S n) action = generateCacheAction' ((action idt (S n)) :: acc) idt n action
 
             addToStateListBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
-            addToStateListBodyGenerator idt name funname indexed model
+            addToStateListBodyGenerator idt name funname _ model
               = let manyToOneFields = filter manyToOneFieldFilter model in
                     join "\n" $ List.filter nonblank [ (indent idt) ++ "let"
                                                      , (indent (idt + indentDelta)) ++ "occurred_at = cast[int](from_mytimestamp(ctx.occurred_at).toTime.toUnix)"
@@ -293,7 +310,7 @@ toNim fsm
                   = (indent idt) ++ "discard ctx.cache_redis.zadd(key" ++ (show idx) ++ ", @[(occurred_at, $ctx.fsmid)])"
 
             removeFromStateListBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
-            removeFromStateListBodyGenerator idt name funname indexed model
+            removeFromStateListBodyGenerator idt name funname _ model
               = let manyToOneFields = filter manyToOneFieldFilter model in
                     join "\n" $ List.filter nonblank [ (indent idt) ++ "let"
                                                      , (indent (idt + indentDelta)) ++ "key0 = \"tenant:\" & $ctx.tenant & \"#" ++ name ++ ".\" & a0"
@@ -313,30 +330,30 @@ toNim fsm
 
             addToStateListOfParticipantBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
             addToStateListOfParticipantBodyGenerator idt name funname indexed _
-              = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#\" & a1 & \":\" & $a2 & \"#" ++ name ++ ".\" & a0"
+              = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#\" & a0 & \":\" & $a1 & \"#" ++ name ++ ".\" & a2"
                                , (indent idt) ++ "discard ctx.cache_redis.zadd(key, @[(cast[int](from_mytimestamp(ctx.occurred_at).toTime.toUnix), $ctx.fsmid)])"
                                ]
 
             removeFromStateListOfParticipantBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
             removeFromStateListOfParticipantBodyGenerator idt name funname indexed _
-              = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#\" & a1 & \":\" & $a2 & \"#" ++ name ++ ".\" & a0"
+              = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#\" & a0 & \":\" & $a1 & \"#" ++ name ++ ".\" & a2"
                                , (indent idt) ++ "discard ctx.cache_redis.zrem(key, @[$ctx.fsmid])"
                                ]
 
             responseBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
-            responseBodyGenerator idt name funname indexed _
+            responseBodyGenerator idt name funname _ _
               = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#callback:\" & ctx.callback"
                                , (indent idt) ++ "discard ctx.cache_redis.setex(key, \"\"\"{\"code\":$1,\"payload\":\"$2\"}\"\"\" % [$a0, a1], 60)"
                                ]
 
             responseIdBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
-            responseIdBodyGenerator idt name funname indexed _
+            responseIdBodyGenerator idt name funname _ _
               = List.join "\n" [ (indent idt) ++ "let key = \"tenant:\" & $ctx.tenant & \"#callback:\" & ctx.callback"
                                , (indent idt) ++ "discard ctx.cache_redis.setex(key, \"\"\"{\"code\":200,\"payload\":\"$1\"}\"\"\" % $ ctx.fsmid, 60)"
                                ]
 
             syncModelBodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
-            syncModelBodyGenerator idt name funname indexed model
+            syncModelBodyGenerator idt name funname _ model
               = List.join "\n" [ (indent idt) ++ "let"
                                , (indent (idt + indentDelta)) ++ "key = \"tenant:\" & $ctx.tenant & \"#" ++ name ++ ":\" & $ ctx.fsmid"
                                , (indent (idt + indentDelta)) ++ "args = @{"
@@ -353,15 +370,149 @@ toNim fsm
                 generateArguments idt ps
                   = join ",\n" $ map (generateArgument idt) ps
 
+            pushToGenericIndexBodyGenerator: Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
+            pushToGenericIndexBodyGenerator idt name funname _ _
+              = List.join "\n" [ (indent idt) ++ "let args = {"
+                               , (indent (idt + indentDelta)) ++ "\"TENANT\": $ctx.tenant,"
+                               , (indent (idt + indentDelta)) ++ "\"DOMAIN\": $ctx.domain,"
+                               , (indent (idt + indentDelta)) ++ "\"TASK\": \"PUSH\","
+                               , (indent (idt + indentDelta)) ++ "\"COLLECTION\": \"" ++ name ++ "\","
+                               , (indent (idt + indentDelta)) ++ "\"BUCKET\": \"field:\" & a0,"
+                               , (indent (idt + indentDelta)) ++ "\"OBJECT\": $ctx.fsmid,"
+                               , (indent (idt + indentDelta)) ++ "\"TEXT\": a1,"
+                               , (indent idt) ++ "}"
+                               , (indent idt) ++ "discard ctx.queue_redis.xadd(\"%%INDEXER-QUEUE%%\", @args)"
+                               ]
+
+            flushToGenericIndexBodyGenerator: Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
+            flushToGenericIndexBodyGenerator idt name funname _ _
+              = List.join "\n" [ (indent idt) ++ "let args = {"
+                               , (indent (idt + indentDelta)) ++ "\"TENANT\": $ctx.tenant,"
+                               , (indent (idt + indentDelta)) ++ "\"DOMAIN\": $ctx.domain,"
+                               , (indent (idt + indentDelta)) ++ "\"TASK\": \"FLUSH-OBJECT\","
+                               , (indent (idt + indentDelta)) ++ "\"COLLECTION\": \"" ++ name ++ "\","
+                               , (indent (idt + indentDelta)) ++ "\"BUCKET\": \"field:\" & a0,"
+                               , (indent (idt + indentDelta)) ++ "\"OBJECT\": $ctx.fsmid,"
+                               , (indent idt) ++ "}"
+                               , (indent idt) ++ "discard ctx.queue_redis.xadd(\"%%INDEXER-QUEUE%%\", @args)"
+                               ]
+
+            pushToStateIndexBodyGenerator: Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
+            pushToStateIndexBodyGenerator idt name funname _ _
+              = List.join "\n" [ (indent idt) ++ "if a2.len > 0:"
+                               , (indent (idt + indentDelta)) ++ "let args = {"
+                               , (indent (idt + indentDelta * 2)) ++ "\"TENANT\": $ctx.tenant,"
+                               , (indent (idt + indentDelta * 2)) ++ "\"DOMAIN\": $ctx.domain,"
+                               , (indent (idt + indentDelta * 2)) ++ "\"TASK\": \"PUSH\","
+                               , (indent (idt + indentDelta * 2)) ++ "\"COLLECTION\": \"" ++ name ++ "\","
+                               , (indent (idt + indentDelta * 2)) ++ "\"BUCKET\": \"state:\" & a0 & \"&field:\" & a1,"
+                               , (indent (idt + indentDelta * 2)) ++ "\"OBJECT\": $ctx.fsmid,"
+                               , (indent (idt + indentDelta * 2)) ++ "\"TEXT\": a2,"
+                               , (indent (idt + indentDelta)) ++ "}"
+                               , (indent (idt + indentDelta)) ++ "discard ctx.queue_redis.xadd(\"%%INDEXER-QUEUE%%\", @args)"
+                               ]
+
+            flushToStateIndexBodyGenerator: Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
+            flushToStateIndexBodyGenerator idt name funname _ _
+              = List.join "\n" [ (indent idt) ++ "let args = {"
+                               , (indent (idt + indentDelta)) ++ "\"TENANT\": $ctx.tenant,"
+                               , (indent (idt + indentDelta)) ++ "\"DOMAIN\": $ctx.domain,"
+                               , (indent (idt + indentDelta)) ++ "\"TASK\": \"FLUSH-OBJECT\","
+                               , (indent (idt + indentDelta)) ++ "\"COLLECTION\": \"" ++ name ++ "\","
+                               , (indent (idt + indentDelta)) ++ "\"BUCKET\": \"state:\" & a0 & \"&field:\" & a1,"
+                               , (indent (idt + indentDelta)) ++ "\"OBJECT\": $ctx.fsmid,"
+                               , (indent idt) ++ "}"
+                               , (indent idt) ++ "discard ctx.queue_redis.xadd(\"%%INDEXER-QUEUE%%\", @args)"
+                               ]
+
+            pushToGenericIndexOfParticipantBodyGenerator: Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
+            pushToGenericIndexOfParticipantBodyGenerator idt name funname _ _
+              = List.join "\n" [ (indent idt) ++ "let args = {"
+                               , (indent (idt + indentDelta)) ++ "\"TENANT\": $ctx.tenant,"
+                               , (indent (idt + indentDelta)) ++ "\"DOMAIN\": $ctx.domain,"
+                               , (indent (idt + indentDelta)) ++ "\"TASK\": \"PUSH\","
+                               , (indent (idt + indentDelta)) ++ "\"COLLECTION\": \"" ++ name ++ "\","
+                               , (indent (idt + indentDelta)) ++ "\"BUCKET\": a0 & \":\" & $a1 & \"&field:\" & a2,"
+                               , (indent (idt + indentDelta)) ++ "\"OBJECT\": $ctx.fsmid,"
+                               , (indent (idt + indentDelta)) ++ "\"TEXT\": a3,"
+                               , (indent idt) ++ "}"
+                               , (indent idt) ++ "discard ctx.queue_redis.xadd(\"%%INDEXER-QUEUE%%\", @args)"
+                               ]
+
+            flushToGenericIndexOfParticipantBodyGenerator: Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
+            flushToGenericIndexOfParticipantBodyGenerator idt name funname _ _
+              = List.join "\n" [ (indent idt) ++ "let args = {"
+                               , (indent (idt + indentDelta)) ++ "\"TENANT\": $ctx.tenant,"
+                               , (indent (idt + indentDelta)) ++ "\"DOMAIN\": $ctx.domain,"
+                               , (indent (idt + indentDelta)) ++ "\"TASK\": \"FLUSH-OBJECT\","
+                               , (indent (idt + indentDelta)) ++ "\"COLLECTION\": \"" ++ name ++ "\","
+                               , (indent (idt + indentDelta)) ++ "\"BUCKET\": a0 & \":\" & $a1 & \"&field:\" & a2,"
+                               , (indent (idt + indentDelta)) ++ "\"OBJECT\": $ctx.fsmid,"
+                               , (indent idt) ++ "}"
+                               , (indent idt) ++ "discard ctx.queue_redis.xadd(\"%%INDEXER-QUEUE%%\", @args)"
+                               ]
+
+            pushToStateIndexOfParticipantBodyGenerator: Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
+            pushToStateIndexOfParticipantBodyGenerator idt name funname _ _
+              = List.join "\n" [ (indent idt) ++ "if a2.len > 0:"
+                               , (indent (idt + indentDelta)) ++ "let args = {"
+                               , (indent (idt + indentDelta * 2)) ++ "\"TENANT\": $ctx.tenant,"
+                               , (indent (idt + indentDelta * 2)) ++ "\"DOMAIN\": $ctx.domain,"
+                               , (indent (idt + indentDelta * 2)) ++ "\"TASK\": \"PUSH\","
+                               , (indent (idt + indentDelta * 2)) ++ "\"COLLECTION\": \"" ++ name ++ "\","
+                               , (indent (idt + indentDelta * 2)) ++ "\"BUCKET\": a0 & \":\" & $a1 & \"state:\" & a2 & \"&field:\" & a3,"
+                               , (indent (idt + indentDelta * 2)) ++ "\"OBJECT\": $ctx.fsmid,"
+                               , (indent (idt + indentDelta * 2)) ++ "\"TEXT\": a4,"
+                               , (indent (idt + indentDelta)) ++ "}"
+                               , (indent (idt + indentDelta)) ++ "discard ctx.queue_redis.xadd(\"%%INDEXER-QUEUE%%\", @args)"
+                               ]
+
+            flushToStateIndexOfParticipantBodyGenerator: Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
+            flushToStateIndexOfParticipantBodyGenerator idt name funname _ _
+              = List.join "\n" [ (indent idt) ++ "let args = {"
+                               , (indent (idt + indentDelta)) ++ "\"TENANT\": $ctx.tenant,"
+                               , (indent (idt + indentDelta)) ++ "\"DOMAIN\": $ctx.domain,"
+                               , (indent (idt + indentDelta)) ++ "\"TASK\": \"FLUSH-OBJECT\","
+                               , (indent (idt + indentDelta)) ++ "\"COLLECTION\": \"" ++ name ++ "\","
+                               , (indent (idt + indentDelta)) ++ "\"BUCKET\": a0 & \":\" & $a1 & \"state:\" & a2 & \"&field:\" & a3,"
+                               , (indent (idt + indentDelta)) ++ "\"OBJECT\": $ctx.fsmid,"
+                               , (indent idt) ++ "}"
+                               , (indent idt) ++ "discard ctx.queue_redis.xadd(\"%%INDEXER-QUEUE%%\", @args)"
+                               ]
+
             generateDefaultOutputDelegate : Nat -> String -> String -> SortedMap Expression Tipe -> List Parameter -> Action -> String
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "add-to-state-list" _)                     = generateOutputDelegate idt pre name env model addToStateListBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "remove-from-state-list" _)                = generateOutputDelegate idt pre name env model removeFromStateListBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "add-to-state-list-of-participant" _)      = generateOutputDelegate idt pre name env model addToStateListOfParticipantBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "remove-from-state-list-of-participant" _) = generateOutputDelegate idt pre name env model removeFromStateListOfParticipantBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "response" _)                              = generateOutputDelegate idt pre name env model responseBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "response-id" _)                           = generateOutputDelegate idt pre name env model responseIdBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "sync-model" _)                            = generateOutputDelegate idt pre name env model syncModelBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model _                                                            = ""
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "add-to-state-list" _)
+              = generateOutputDelegate idt pre name env model addToStateListBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "remove-from-state-list" _)
+              = generateOutputDelegate idt pre name env model removeFromStateListBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "add-to-state-list-of-participant" _)
+              = generateOutputDelegate idt pre name env model addToStateListOfParticipantBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "remove-from-state-list-of-participant" _)
+              = generateOutputDelegate idt pre name env model removeFromStateListOfParticipantBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "response" _)
+              = generateOutputDelegate idt pre name env model responseBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "response-id" _)
+              = generateOutputDelegate idt pre name env model responseIdBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "sync-model" _)
+              = generateOutputDelegate idt pre name env model syncModelBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "push-to-generic-index" _)
+              = generateOutputDelegate idt pre name env model pushToGenericIndexBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "flush-to-generic-index" _)
+              = generateOutputDelegate idt pre name env model flushToGenericIndexBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "push-to-state-index" _)
+              = generateOutputDelegate idt pre name env model pushToStateIndexBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "flush-to-state-index" _)
+              = generateOutputDelegate idt pre name env model flushToStateIndexBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "push-to-generic-index-of-participant" _)
+              = generateOutputDelegate idt pre name env model pushToGenericIndexOfParticipantBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "flush-to-generic-index-of-participant" _)
+              = generateOutputDelegate idt pre name env model flushToGenericIndexOfParticipantBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "push-to-state-index-of-participant" _)
+              = generateOutputDelegate idt pre name env model pushToStateIndexOfParticipantBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "flush-to-state-index-of-participant" _)
+              = generateOutputDelegate idt pre name env model flushToStateIndexOfParticipantBodyGenerator act
+            generateDefaultOutputDelegate idt pre name env model _
+              = ""
 
 
         generateMainCode : Nat -> String -> String -> SortedMap Expression Tipe -> Fsm -> String
