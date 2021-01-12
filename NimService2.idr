@@ -114,10 +114,13 @@ toNim fsm
                 join "\n" $ List.filter (\x => length x > 0) srcs
           where
             generateFetchEventArg : Nat -> Parameter -> String
-            generateFetchEventArg idt (n, t, _)
+            generateFetchEventArg idt (n, t, ms)
               = let lhs = (indent idt) ++ (toNimName n)
-                    rhs = "payload{\"" ++ n ++ "\"}" in
-                    lhs ++ " = " ++ (toNimFromJson rhs t)
+                    rhs = case lookup "in-service-context" ms of
+                               Just (MVString "true") => "context." ++ (toNimName n)
+                               _ => toNimFromJson ("payload{\"" ++ n ++ "\"}") t
+                    in
+                    lhs ++ " = " ++ rhs
 
             generateFetchEventArgs : Nat -> List Parameter -> String
             generateFetchEventArgs idt ps
