@@ -206,7 +206,7 @@ toNim fsm
     generateMainModule pre name fsm
       = let env = rootEnv fsm
             model = fsm.model
-            actions = outputActions fsm in
+            actions = nubBy outputActionEqualityChecker $ liftOutputActions fsm.states fsm.transitions in
             join "\n\n" $ List.filter nonblank [ "when isMainModule:"
                                                , generateNonDefaultOutputDelegates indentDelta pre name env model actions
                                                , generateDefaultOutputDelegates indentDelta pre name env model actions
@@ -214,7 +214,7 @@ toNim fsm
                                                ]
       where
         generateOutputDelegate : Nat -> String -> String -> SortedMap Expression Tipe -> List Parameter -> (Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String) -> Action -> String
-        generateOutputDelegate idt pre name env model body (OutputAction n es)
+        generateOutputDelegate idt pre name env model body (OutputAction (MkPort n _) es)
           = let funname = "output_" ++ (toNimName n)
                 indexedParameters = enumerate $ map (\x => fromMaybe TUnit $ inferType env x) es in
                 List.join "\n" [ (indent idt) ++ "proc " ++ funname ++ "(" ++ (List.join ", " (map (\(n', t) => (toNimName n') ++ ": " ++ (toNimType t)) (("model", TRecord (pre ++ "Model") []) :: (map (\(i, t) => ("a" ++ show i, t)) indexedParameters)))) ++ ") ="
@@ -230,22 +230,22 @@ toNim fsm
           = join "\n\n" $ filter nonblank $ map (generateOutputDelegate idt pre name env model bodyGenerator) $ filter nonDefaultOutputActionFilter as
           where
             nonDefaultOutputActionFilter : Action -> Bool
-            nonDefaultOutputActionFilter (OutputAction "add-to-state-list" _)                     = False
-            nonDefaultOutputActionFilter (OutputAction "remove-from-state-list" _)                = False
-            nonDefaultOutputActionFilter (OutputAction "add-to-state-list-of-participant" _)      = False
-            nonDefaultOutputActionFilter (OutputAction "remove-from-state-list-of-participant" _) = False
-            nonDefaultOutputActionFilter (OutputAction "response" _)                              = False
-            nonDefaultOutputActionFilter (OutputAction "response-id" _)                           = False
-            nonDefaultOutputActionFilter (OutputAction "sync-model" _)                            = False
-            nonDefaultOutputActionFilter (OutputAction "push-to-generic-index" _)                 = False
-            nonDefaultOutputActionFilter (OutputAction "flush-to-generic-index" _)                = False
-            nonDefaultOutputActionFilter (OutputAction "push-to-state-index" _)                   = False
-            nonDefaultOutputActionFilter (OutputAction "flush-to-state-index" _)                  = False
-            nonDefaultOutputActionFilter (OutputAction "push-to-generic-index-of-participant" _)  = False
-            nonDefaultOutputActionFilter (OutputAction "flush-to-generic-index-of-participant" _) = False
-            nonDefaultOutputActionFilter (OutputAction "push-to-state-index-of-participant" _)    = False
-            nonDefaultOutputActionFilter (OutputAction "flush-to-state-index-of-participant" _)   = False
-            nonDefaultOutputActionFilter _                                                        = True
+            nonDefaultOutputActionFilter (OutputAction (MkPort "add-to-state-list" _) _)                     = False
+            nonDefaultOutputActionFilter (OutputAction (MkPort "remove-from-state-list" _) _)                = False
+            nonDefaultOutputActionFilter (OutputAction (MkPort "add-to-state-list-of-participant" _) _)      = False
+            nonDefaultOutputActionFilter (OutputAction (MkPort "remove-from-state-list-of-participant" _) _) = False
+            nonDefaultOutputActionFilter (OutputAction (MkPort "response" _) _)                              = False
+            nonDefaultOutputActionFilter (OutputAction (MkPort "response-id" _) _)                           = False
+            nonDefaultOutputActionFilter (OutputAction (MkPort "sync-model" _) _)                            = False
+            nonDefaultOutputActionFilter (OutputAction (MkPort "push-to-generic-index" _) _)                 = False
+            nonDefaultOutputActionFilter (OutputAction (MkPort "flush-to-generic-index" _) _)                = False
+            nonDefaultOutputActionFilter (OutputAction (MkPort "push-to-state-index" _) _)                   = False
+            nonDefaultOutputActionFilter (OutputAction (MkPort "flush-to-state-index" _) _)                  = False
+            nonDefaultOutputActionFilter (OutputAction (MkPort "push-to-generic-index-of-participant" _) _)  = False
+            nonDefaultOutputActionFilter (OutputAction (MkPort "flush-to-generic-index-of-participant" _) _) = False
+            nonDefaultOutputActionFilter (OutputAction (MkPort "push-to-state-index-of-participant" _) _)    = False
+            nonDefaultOutputActionFilter (OutputAction (MkPort "flush-to-state-index-of-participant" _) _)   = False
+            nonDefaultOutputActionFilter _                                                                   = True
 
             bodyGenerator : Nat -> String -> String -> List (Nat, Tipe) -> List Parameter -> String
             bodyGenerator idt name funname indexedParameters model
@@ -256,22 +256,22 @@ toNim fsm
           = join "\n\n" $ filter nonblank $ map (generateDefaultOutputDelegate idt pre name env model) $ filter defaultOutputActionFilter as
           where
             defaultOutputActionFilter : Action -> Bool
-            defaultOutputActionFilter (OutputAction "add-to-state-list" _)                     = True
-            defaultOutputActionFilter (OutputAction "remove-from-state-list" _)                = True
-            defaultOutputActionFilter (OutputAction "add-to-state-list-of-participant" _)      = True
-            defaultOutputActionFilter (OutputAction "remove-from-state-list-of-participant" _) = True
-            defaultOutputActionFilter (OutputAction "response" _)                              = True
-            defaultOutputActionFilter (OutputAction "response-id" _)                           = True
-            defaultOutputActionFilter (OutputAction "sync-model" _)                            = True
-            defaultOutputActionFilter (OutputAction "push-to-generic-index" _)                 = True
-            defaultOutputActionFilter (OutputAction "flush-to-generic-index" _)                = True
-            defaultOutputActionFilter (OutputAction "push-to-state-index" _)                   = True
-            defaultOutputActionFilter (OutputAction "flush-to-state-index" _)                  = True
-            defaultOutputActionFilter (OutputAction "push-to-generic-index-of-participant" _)  = True
-            defaultOutputActionFilter (OutputAction "flush-to-generic-index-of-participant" _) = True
-            defaultOutputActionFilter (OutputAction "push-to-state-index-of-participant" _)    = True
-            defaultOutputActionFilter (OutputAction "flush-to-state-index-of-participant" _)   = True
-            defaultOutputActionFilter _                                                        = False
+            defaultOutputActionFilter (OutputAction (MkPort "add-to-state-list" _) _)                     = True
+            defaultOutputActionFilter (OutputAction (MkPort "remove-from-state-list" _) _)                = True
+            defaultOutputActionFilter (OutputAction (MkPort "add-to-state-list-of-participant" _) _)      = True
+            defaultOutputActionFilter (OutputAction (MkPort "remove-from-state-list-of-participant" _) _) = True
+            defaultOutputActionFilter (OutputAction (MkPort "response" _) _)                              = True
+            defaultOutputActionFilter (OutputAction (MkPort "response-id" _) _)                           = True
+            defaultOutputActionFilter (OutputAction (MkPort "sync-model" _) _)                            = True
+            defaultOutputActionFilter (OutputAction (MkPort "push-to-generic-index" _) _)                 = True
+            defaultOutputActionFilter (OutputAction (MkPort "flush-to-generic-index" _) _)                = True
+            defaultOutputActionFilter (OutputAction (MkPort "push-to-state-index" _) _)                   = True
+            defaultOutputActionFilter (OutputAction (MkPort "flush-to-state-index" _) _)                  = True
+            defaultOutputActionFilter (OutputAction (MkPort "push-to-generic-index-of-participant" _) _)  = True
+            defaultOutputActionFilter (OutputAction (MkPort "flush-to-generic-index-of-participant" _) _) = True
+            defaultOutputActionFilter (OutputAction (MkPort "push-to-state-index-of-participant" _) _)    = True
+            defaultOutputActionFilter (OutputAction (MkPort "flush-to-state-index-of-participant" _) _)   = True
+            defaultOutputActionFilter _                                                                   = False
 
             manyToOneFieldFilter : Parameter -> Bool
             manyToOneFieldFilter (_, _, ms)
@@ -484,35 +484,35 @@ toNim fsm
                                ]
 
             generateDefaultOutputDelegate : Nat -> String -> String -> SortedMap Expression Tipe -> List Parameter -> Action -> String
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "add-to-state-list" _)
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction (MkPort "add-to-state-list" _) _)
               = generateOutputDelegate idt pre name env model addToStateListBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "remove-from-state-list" _)
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction (MkPort "remove-from-state-list" _) _)
               = generateOutputDelegate idt pre name env model removeFromStateListBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "add-to-state-list-of-participant" _)
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction (MkPort "add-to-state-list-of-participant" _) _)
               = generateOutputDelegate idt pre name env model addToStateListOfParticipantBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "remove-from-state-list-of-participant" _)
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction (MkPort "remove-from-state-list-of-participant" _) _)
               = generateOutputDelegate idt pre name env model removeFromStateListOfParticipantBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "response" _)
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction (MkPort "response" _) _)
               = generateOutputDelegate idt pre name env model responseBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "response-id" _)
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction (MkPort "response-id" _) _)
               = generateOutputDelegate idt pre name env model responseIdBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "sync-model" _)
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction (MkPort "sync-model" _) _)
               = generateOutputDelegate idt pre name env model syncModelBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "push-to-generic-index" _)
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction (MkPort "push-to-generic-index" _) _)
               = generateOutputDelegate idt pre name env model pushToGenericIndexBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "flush-to-generic-index" _)
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction (MkPort "flush-to-generic-index" _) _)
               = generateOutputDelegate idt pre name env model flushToGenericIndexBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "push-to-state-index" _)
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction (MkPort "push-to-state-index" _) _)
               = generateOutputDelegate idt pre name env model pushToStateIndexBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "flush-to-state-index" _)
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction (MkPort "flush-to-state-index" _) _)
               = generateOutputDelegate idt pre name env model flushToStateIndexBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "push-to-generic-index-of-participant" _)
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction (MkPort "push-to-generic-index-of-participant" _) _)
               = generateOutputDelegate idt pre name env model pushToGenericIndexOfParticipantBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "flush-to-generic-index-of-participant" _)
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction (MkPort "flush-to-generic-index-of-participant" _) _)
               = generateOutputDelegate idt pre name env model flushToGenericIndexOfParticipantBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "push-to-state-index-of-participant" _)
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction (MkPort "push-to-state-index-of-participant" _) _)
               = generateOutputDelegate idt pre name env model pushToStateIndexOfParticipantBodyGenerator act
-            generateDefaultOutputDelegate idt pre name env model act@(OutputAction "flush-to-state-index-of-participant" _)
+            generateDefaultOutputDelegate idt pre name env model act@(OutputAction (MkPort "flush-to-state-index-of-participant" _) _)
               = generateOutputDelegate idt pre name env model flushToStateIndexOfParticipantBodyGenerator act
             generateDefaultOutputDelegate idt pre name env model _
               = ""
@@ -520,13 +520,13 @@ toNim fsm
 
         generateMainCode : Nat -> String -> String -> SortedMap Expression Tipe -> Fsm -> String
         generateMainCode idt pre name env fsm
-          = let aas = assignmentActions fsm
-                aes = nubBy (applicationExpressionEqualityChecker env) $ filter applicationExpressionFilter $ flatten $ map expressionsOfAction aas
-                oas = outputActions fsm
+          = let aas = nubBy assignmentActionEqualityChecker $ liftAssignmentActions fsm.states fsm.transitions
+                oas = liftOutputActions fsm.states fsm.transitions
+                aes = nubBy (applicationExpressionEqualityChecker env) $ filter applicationExpressionFilter $ flatten $ map expressionsOfAction (aas ++ oas)
                 ges = nubBy (applicationExpressionEqualityChecker env) $ filter applicationExpressionFilter $ flatten $ map expressionsOfTestExpression $ flatten $ List1.toList $ map guardsOfTransition fsm.transitions in
                 List.join "\n" $ List.filter nonblank [ (indent idt) ++ "let"
                                                       , generateInitActionDelegates (idt + indentDelta) pre name aes
-                                                      , generateInitOutputDelegates (idt + indentDelta) pre oas
+                                                      , generateInitOutputDelegates (idt + indentDelta) pre $ nubBy outputActionEqualityChecker oas
                                                       , generateInitGuardDelegates (idt + indentDelta) pre name ges
                                                       , generateInitStateMachine (idt + indentDelta) pre (length aes > Z) (length oas > Z) (length ges > Z)
                                                       , generateInitServiceDelegate (idt + indentDelta) pre
@@ -560,7 +560,7 @@ toNim fsm
                                                                     ]
               where
                 generateInitOutputDelegate : Nat -> Action -> String
-                generateInitOutputDelegate idt (OutputAction n _) = (indent idt) ++ (toNimName n) ++ ": output_" ++ (toNimName n)
+                generateInitOutputDelegate idt (OutputAction (MkPort n _) _) = (indent idt) ++ (toNimName n) ++ ": output_" ++ (toNimName n)
                 generateInitOutputDelegate idt _ = ""
 
             generateInitGuardDelegates : Nat -> String -> String -> List Expression -> String
@@ -596,7 +596,7 @@ toNim fsm
 doWork : String -> IO ()
 doWork src
   = do Right fsm <- loadFsmFromFile src
-       | Left err => putStrLn $ show err
+       | Left err => putStrLn $ err
        putStrLn $ toNim fsm
 
 usage : IO ()
