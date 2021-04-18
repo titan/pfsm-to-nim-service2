@@ -523,7 +523,7 @@ toNim fsm
           = let aas = nubBy assignmentActionEqualityChecker $ liftAssignmentActions fsm.states fsm.transitions
                 oas = liftOutputActions fsm.states fsm.transitions
                 aes = nubBy (applicationExpressionEqualityChecker env) $ filter applicationExpressionFilter $ flatten $ map expressionsOfAction (aas ++ oas)
-                ges = nubBy (applicationExpressionEqualityChecker env) $ filter applicationExpressionFilter $ flatten $ map expressionsOfTestExpression $ flatten $ List1.toList $ map guardsOfTransition fsm.transitions in
+                ges = nubBy (applicationExpressionEqualityChecker env) $ filter applicationExpressionFilter $ flatten $ map expressionsOfTestExpression $ flatten $ List1.forget $ map guardsOfTransition fsm.transitions in
                 List.join "\n" $ List.filter nonblank [ (indent idt) ++ "let"
                                                       , generateInitActionDelegates (idt + indentDelta) pre name aes
                                                       , generateInitOutputDelegates (idt + indentDelta) pre $ nubBy outputActionEqualityChecker oas

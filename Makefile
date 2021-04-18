@@ -2,13 +2,18 @@ include .config
 NAME-LINK=$(subst _,-,$(NAME))
 
 ESCAPED-BUILDDIR = $(shell echo '$(BUILDDIR)' | sed 's%/%\\/%g')
-TARGET=$(BUILDDIR)/build/exec/$(NAME-LINK)
+TARGET=$(BUILDDIR)/build/exec/$(NAME-LINK)_app/$(NAME-LINK).so
 PKGPREFIX=.
 SRCS=$(wildcard $(PKGPREFIX)/*.idr)
 DSTSRCS=$(addprefix $(BUILDDIR)/$(PKGPREFIX)/, $(notdir $(SRCS)))
 PRJCONF=$(NAME-LINK).ipkg
 
 all: $(TARGET)
+
+install: $(PREFIX)/$(NAME-LINK)
+
+$(PREFIX)/$(NAME-LINK):
+	sudo install $(TARGET) $(PREFIX)/$(NAME-LINK)
 
 $(TARGET): $(DSTSRCS) $(BUILDDIR)/$(PRJCONF) | prebuild
 	cd $(BUILDDIR); idris2 --build $(PRJCONF); cd -
